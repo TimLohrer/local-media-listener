@@ -6,6 +6,7 @@ build/
 
 ### IntelliJ IDEA ###
 .idea/modules.xml
+.idea/workspace.xml
 .idea/discord.xml
 .idea/jarRepositories.xml
 .idea/compiler.xml
@@ -44,3 +45,6 @@ bin/
 
 ### Mac OS ###
 .DS_Store
+
+### Rust ###
+*target/
