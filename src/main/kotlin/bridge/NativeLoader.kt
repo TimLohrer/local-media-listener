@@ -1,0 +1,53 @@
+package dev.timlohrer.bridge
+
+import java.io.File
+import java.io.FileOutputStream
+import java.io.InputStream
+import kotlin.io.path.createTempFile
+
+object NativeLoader {
+    private val osName = System.getProperty("os.name").lowercase()
+    private val isWindows = osName.contains("win")
+    private val isMac = osName.contains("mac")
+    private val isLinux = osName.contains("nix") || osName.contains("nux") || osName.contains("aix")
+
+    private fun extractResource(resourcePath: String, outputFileName: String): File {
+        val inputStream: InputStream = NativeLoader::class.java.getResourceAsStream(resourcePath)
+            ?: throw IllegalArgumentException("Resource not found: $resourcePath")
+
+        val suffix = outputFileName.substringAfterLast('.', "")
+        val tempFile = createTempFile(outputFileName, if (suffix.isNotEmpty()) ".$suffix" else "").toFile()
+        tempFile.deleteOnExit()
+
+        inputStream.use { it.copyTo(FileOutputStream(tempFile)) }
+        return tempFile
+    }
+
+    fun loadNativeLibraryWithOptionalHelper(libName: String, helperExeName: String? = null): File? {
+        val libFileName = when {
+            isWindows -> "$libName.dll"
+            isLinux -> "lib$libName.so"
+            isMac -> "lib$libName.dylib"
+            else -> throw UnsupportedOperationException("Unsupported OS: $osName")
+        }
+        
+        println("Loading native library: $libFileName")
+
+        val libPath = "/lib/$libFileName"
+        val extractedLib = extractResource(libPath, libFileName)
+
+        println("Extracted native library: $libFileName")
+        
+        System.load(extractedLib.absolutePath)
+        
+        println("Native library loaded successfully: ${extractedLib.absolutePath}")
+
+        // If there's a helper executable (e.g., helper.exe), extract it
+        val helperFile = helperExeName?.let {
+            val helperPath = "/lib/$it"
+            extractResource(helperPath, it)
+        }
+
+        return helperFile
+    }
+}
