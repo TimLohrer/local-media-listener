@@ -1,4 +1,4 @@
-package dev.timlohrer.bridge
+package dev.timlohrer.lml.bridge
 
 import java.io.File
 import java.io.FileOutputStream

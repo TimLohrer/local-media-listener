@@ -1,9 +1,8 @@
-package dev.timlohrer.networking
+package dev.timlohrer.lml.networking
 
-import dev.timlohrer.LocalMediaListener.BASE_URL
-import dev.timlohrer.LocalMediaListener.BASE_WS_URL
-import dev.timlohrer.LocalMediaListener
-import dev.timlohrer.data.MediaInfo
+import dev.timlohrer.lml.LocalMediaListener
+import dev.timlohrer.lml.data.MediaInfo
+import dev.timlohrer.lml.data.TransportMediaInfo
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -12,6 +11,7 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
 import java.io.Closeable
+import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
@@ -24,14 +24,14 @@ internal object NativeHookClient {
             return true
         }
         
-        val request = Request.Builder().url("$BASE_URL/ready").build()
+        val request = Request.Builder().url("${LocalMediaListener.BASE_URL}/ready").build()
         
-        // NEIN INTELLIJ DAS IST NICHT UNREACHABLE CODE DU BASTARD22
+        // NEIN INTELLIJ DAS IST NICHT UNREACHABLE CODE DU BASTARD
         return try {
             val response: Response = OkHttpClient().newCall(request).execute()
-            return response.isSuccessful
+            response.isSuccessful
         } catch (e: Exception) {
-            return false
+            false
         }
     }
     
@@ -42,18 +42,17 @@ internal object NativeHookClient {
         }
         
         val request = HttpRequest.newBuilder()
-            .uri(java.net.URI.create("$BASE_URL/now-playing"))
+            .uri(URI.create("${LocalMediaListener.BASE_URL}/now-playing"))
             .GET()
             .build()
         
-        val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
-        if (response.statusCode() != 200) {
-            println("Failed to fetch current media info: ${response.statusCode()}")
-            return MediaInfo.stopped()
-        }
-        
         return try {
-            val mediaInfo = Json.decodeFromString<MediaInfo>(response.body())
+            val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+            if (response.statusCode() != 200) {
+                println("Failed to fetch current media info: ${response.statusCode()}")
+                return MediaInfo.stopped()
+            }
+            val mediaInfo = Json.decodeFromString<TransportMediaInfo>(response.body()).toMediaInfo()
             mediaInfo.isPlaying = true
             mediaInfo
         } catch (e: Exception) {
@@ -71,7 +70,7 @@ internal object NativeHookClient {
         }
 
         val request = Request.Builder()
-            .url("${BASE_WS_URL}/now-playing/subscribe")
+            .url("${LocalMediaListener.BASE_WS_URL}/now-playing/subscribe")
             .build()
 
         lateinit var currentWebSocket: WebSocket
@@ -87,7 +86,7 @@ internal object NativeHookClient {
                     if (text.contains("stopped", ignoreCase = true)) {
                         onUpdate(MediaInfo.stopped())
                     } else {
-                        val mediaInfo = Json.decodeFromString<MediaInfo>(text)
+                        val mediaInfo = Json.decodeFromString<TransportMediaInfo>(text).toMediaInfo()
                         mediaInfo.isPlaying = true
                         onUpdate(mediaInfo)
                     }
@@ -111,7 +110,7 @@ internal object NativeHookClient {
                 onUpdate(MediaInfo.stopped())
             }
 
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: okhttp3.Response?) {
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 val responseMessage = response?.message ?: "No response"
                 println("WebSocket connection failure: ${t.message}, response: $responseMessage")
                 onUpdate(MediaInfo.error("WebSocket connection failed: ${t.message}"))
@@ -134,12 +133,18 @@ internal object NativeHookClient {
         }
         
         val request = HttpRequest.newBuilder()
-            .uri(java.net.URI.create("$LocalMediaListener.BASE_URL/exit"))
+            .uri(URI.create("${LocalMediaListener.BASE_URL}/exit"))
             .GET()
             .build()
-        val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
-        if (response.statusCode() != 200) {
-            println("Failed to exit NativeHook: ${response.statusCode()}")
+        
+        try {
+            val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+            if (response.statusCode() != 200) {
+                println("Failed to exit NativeHook: ${response.statusCode()}")
+                return
+            }
+        } catch (e: Exception) {
+            println("Error exiting NativeHook: ${e.message}")
             return
         }
         

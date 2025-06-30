@@ -1,4 +1,4 @@
-package dev.timlohrer.data
+package dev.timlohrer.lml.data
 
 import kotlinx.serialization.Serializable
 
@@ -8,8 +8,8 @@ data class MediaInfo(
     val artist: String,
     val album: String,
     val imageUrl: String? = null,
-    val duration: String? = null,
-    val position: String? = null,
+    val duration: Int? = null,
+    val position: Double? = null,
     var isPlaying: Boolean = false,
     val source: String,
     val error: String? = null,

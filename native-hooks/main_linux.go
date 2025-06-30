@@ -1,5 +1,5 @@
-//go:build darwin
-// +build darwin
+//go:build linux
+// +build linux
 
 package main
 
@@ -207,7 +207,7 @@ func equal(a, b *MediaInfo) bool {
 	if a == nil || b == nil {
 		return false
 	}
-	return a.Title == b.Title && a.Artist == b.Artist && a.Album == b.Album && a.ImageURL == b.ImageURL
+	return a.Title == b.Title && a.Artist == b.Artist && a.Album == b.Album && a.ImageURL == b.ImageURL && a.Duration == b.Duration && a.Position == b.Position && a.AppName == b.AppName
 }
 
 func pollLoop(interval time.Duration) {
@@ -235,7 +235,7 @@ func pollLoop(interval time.Duration) {
 
 //export Init
 func Init() {
-	go pollLoop(1 * time.Second)
+	go pollLoop(500 * time.Millisecond)
 
 	http.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

@@ -1,4 +1,4 @@
-package dev.timlohrer.bridge
+package dev.timlohrer.lml.bridge
 
 internal class NativeBridge {
     init {
