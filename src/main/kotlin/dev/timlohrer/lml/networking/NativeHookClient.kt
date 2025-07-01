@@ -125,6 +125,75 @@ internal object NativeHookClient {
             currentWebSocket.cancel()
         }
     }
+    
+    fun back() {
+        if (!LocalMediaListener.isRunning) {
+            println("LocalMediaListener is not running. No need to back.")
+            return
+        }
+        
+        val request = HttpRequest.newBuilder()
+            .uri(URI.create("${LocalMediaListener.BASE_URL}/control/back"))
+            .POST(HttpRequest.BodyPublishers.noBody())
+            .build()
+        
+        try {
+            val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+            if (response.statusCode() != 200) {
+                println("Failed to go back: ${response.statusCode()}")
+                return
+            }
+        } catch (e: Exception) {
+            println("Error going back: ${e.message}")
+            return
+        }
+    }
+    
+    fun next() {
+        if (!LocalMediaListener.isRunning) {
+            println("LocalMediaListener is not running. No need to next.")
+            return
+        }
+        
+        val request = HttpRequest.newBuilder()
+            .uri(URI.create("${LocalMediaListener.BASE_URL}/control/next"))
+            .POST(HttpRequest.BodyPublishers.noBody())
+            .build()
+        
+        try {
+            val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+            if (response.statusCode() != 200) {
+                println("Failed to go next: ${response.statusCode()}")
+                return
+            }
+        } catch (e: Exception) {
+            println("Error going next: ${e.message}")
+            return
+        }
+    }
+    
+fun playPause() {
+        if (!LocalMediaListener.isRunning) {
+            println("LocalMediaListener is not running. No need to play/pause.")
+            return
+        }
+        
+        val request = HttpRequest.newBuilder()
+            .uri(URI.create("${LocalMediaListener.BASE_URL}/control/play-pause"))
+            .POST(HttpRequest.BodyPublishers.noBody())
+            .build()
+        
+        try {
+            val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+            if (response.statusCode() != 200) {
+                println("Failed to toggle play/pause: ${response.statusCode()}")
+                return
+            }
+        } catch (e: Exception) {
+            println("Error toggling play/pause: ${e.message}")
+            return
+        }
+    }
         
     fun exitNativeHook() {
         if (!LocalMediaListener.isRunning) {

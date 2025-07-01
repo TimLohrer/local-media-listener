@@ -65,6 +65,21 @@ object LocalMediaListener {
     }
     
     @Suppress("UNUSED")
+    fun back() {
+        NativeHookClient.back()
+    }
+    
+    @Suppress("UNUSED")
+    fun playPause() {
+        NativeHookClient.playPause()
+    }
+    
+    @Suppress("UNUSED")
+    fun next() {
+        NativeHookClient.next()
+    }
+    
+    @Suppress("UNUSED")
     fun closeHook() {
         if (!isRunning) {
             println("LocalMediaListener is not running. No need to exit.")
