@@ -194,30 +194,4 @@ fun playPause(appName: String) {
             return
         }
     }
-        
-    fun exitNativeHook() {
-        if (!LocalMediaListener.isRunning) {
-            println("LocalMediaListener is not running. No need to exit.")
-            return
-        }
-        
-        val request = HttpRequest.newBuilder()
-            .uri(URI.create("${LocalMediaListener.BASE_URL}/exit"))
-            .GET()
-            .build()
-        
-        try {
-            val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
-            if (response.statusCode() != 200) {
-                println("Failed to exit NativeHook: ${response.statusCode()}")
-                return
-            }
-        } catch (e: Exception) {
-            println("Error exiting NativeHook: ${e.message}")
-            return
-        }
-        
-        LocalMediaListener.isRunning = false
-        println("Exited NativeHook")
-    }
 }

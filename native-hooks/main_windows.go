@@ -8,12 +8,11 @@ package main
 */
 import "C"
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"os/exec"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -34,6 +33,7 @@ type MediaInfo struct {
 var (
 	mu          sync.RWMutex
 	currentInfo *MediaInfo
+	httpServer  *http.Server
 	wsClients   = make(map[*websocket.Conn]chan *MediaInfo)
 	clientMux   sync.Mutex // Protects wsClients map
 )
@@ -105,11 +105,13 @@ func pollLoop(interval time.Duration) {
 func Init() {
 	go pollLoop(500 * time.Millisecond)
 
-	http.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	http.HandleFunc("/now-playing", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/now-playing", func(w http.ResponseWriter, r *http.Request) {
 		mu.RLock()
 		defer mu.RUnlock()
 		if currentInfo == nil {
@@ -120,7 +122,7 @@ func Init() {
 		json.NewEncoder(w).Encode(currentInfo)
 	})
 
-	http.HandleFunc("/now-playing/subscribe", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/now-playing/subscribe", func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			fmt.Println("WebSocket upgrade error:", err)
@@ -157,6 +159,7 @@ func Init() {
 			clientMux.Lock()
 			delete(wsClients, conn)
 			close(clientChan)
+			wsClients = make(map[*websocket.Conn]chan *MediaInfo)
 			clientMux.Unlock()
 			fmt.Println("WebSocket client disconnected.")
 		}()
@@ -183,27 +186,77 @@ func Init() {
 		}
 	})
 
-	http.HandleFunc("/exit", func(w http.ResponseWriter, r *http.Request) {
-		clientMux.Lock()
-		for conn, ch := range wsClients {
-			conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "Server exiting"))
-			conn.Close()
-			close(ch)
+	mux.HandleFunc("/control/play-pause", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
 		}
-		wsClients = make(map[*websocket.Conn]chan *MediaInfo) // Clear the map
-		clientMux.Unlock()
-
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprintln(w, "Exiting...")
-		os.Exit(0)
+		//if playPause() {
+		//	w.WriteHeader(http.StatusOK)
+		//} else {
+		//	http.Error(w, "Failed to toggle play/pause", http.StatusInternalServerError)
+		//	return
+		//}
+		http.Error(w, "Play/Pause control not implemented", http.StatusNotImplemented)
 	})
 
-	port := "14565"
-	fmt.Printf("OS Media daemon listening on http://localhost:%s\n", port)
-	if err := http.ListenAndServe("127.0.0.1:"+port, nil); err != nil {
-		fmt.Println("Error:", err)
-		os.Exit(1)
+	mux.HandleFunc("/control/next", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		//if next() {
+		//	w.WriteHeader(http.StatusOK)
+		//} else {
+		//	http.Error(w, "Failed to skip to next track", http.StatusInternalServerError)
+		//	return
+		//}
+		http.Error(w, "Next control not implemented", http.StatusNotImplemented)
+	})
+
+	mux.HandleFunc("/control/back", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		//if back() {
+		//	w.WriteHeader(http.StatusOK)
+		//} else {
+		//	http.Error(w, "Failed to skip to previous track", http.StatusInternalServerError)
+		//	return
+		//}
+		http.Error(w, "Back control not implemented", http.StatusNotImplemented)
+	})
+
+	httpServer = &http.Server{
+		Addr:    "127.0.0.1:14565",
+		Handler: mux,
 	}
+
+	go func() {
+		fmt.Println("OS Media daemon listening on http://localhost:14565")
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			fmt.Println("HTTP server error:", err)
+		}
+	}()
+}
+
+//export Shutdown
+func Shutdown() {
+	fmt.Println("Shutting down HTTP server...")
+
+	if httpServer != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+		if err := httpServer.Shutdown(ctx); err != nil {
+			fmt.Println("Error during server shutdown:", err)
+		} else {
+			fmt.Println("HTTP server shut down cleanly.")
+		}
+		httpServer = nil
+	}
+
+	fmt.Println("Shutdown complete.")
 }
 
 func main() {}

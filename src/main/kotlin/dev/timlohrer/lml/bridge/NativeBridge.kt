@@ -19,4 +19,5 @@ internal class NativeBridge {
     }
     
     external fun initNativeHook()
+    external fun shutdownNativeHook()
 }

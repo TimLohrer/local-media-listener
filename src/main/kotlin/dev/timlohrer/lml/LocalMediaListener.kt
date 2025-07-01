@@ -13,6 +13,8 @@ object LocalMediaListener {
     internal const val BASE_URL = "http://localhost:14565"
     internal const val BASE_WS_URL = "ws://localhost:14565"
     var isRunning = false
+    internal var native: NativeBridge? = null
+    internal var lastStartupShutdownTime: Long = 0
     
     @JvmStatic
     fun main(args: Array<String>) {
@@ -35,10 +37,11 @@ object LocalMediaListener {
         
         println("Initializing LocalMediaListener...")
 
+        lastStartupShutdownTime = System.currentTimeMillis()
         CoroutineScope(Dispatchers.IO).launch {
             CoroutineScope(Dispatchers.IO).launch {
                 try {
-                    NativeBridge()
+                    native = NativeBridge()
                 } catch (e: Exception) {
                     println("Failed to initialize NativeBridge: ${e.message}")
                     return@launch
@@ -82,22 +85,22 @@ object LocalMediaListener {
     
     @Suppress("UNUSED")
     fun isAvailable(): Boolean {
-        return isRunning || !(NativeLoader.isWindows && NativeLoader.arch == "arm64")
+        val now = System.currentTimeMillis()
+        return (now - lastStartupShutdownTime > 3 * 1000) && (isRunning || !(NativeLoader.isWindows && NativeLoader.arch == "arm64"))
     }
     
     @Suppress("UNUSED")
     fun closeHook() {
-        if (!isRunning) {
+        if (!isRunning || native == null) {
             println("LocalMediaListener is not running. No need to exit.")
             return
         }
 
-        NativeLoader.unloadNativeLibrary("native_hook")
-        if (!NativeLoader.isLinux) {
-            NativeLoader.unloadNativeLibrary("bridge")
-        }
-        isRunning = false
+        println("Shutting down LocalMediaListener...")
+        lastStartupShutdownTime = System.currentTimeMillis()
         
-//        NativeHookClient.exitNativeHook()
+        native!!.shutdownNativeHook()
+        System.gc()
+        isRunning = false
     }
 }
