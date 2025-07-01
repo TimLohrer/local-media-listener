@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -115,6 +114,54 @@ func fetchFromMac() *MediaInfo {
 		Position: parts[5],
 		AppName:  parts[6],
 	}
+}
+
+func back() bool {
+	script := `osascript -e '
+	if application "Spotify" is running then
+		tell application "Spotify" to previous track
+	else if application "Music" is running then
+		tell application "Music" to previous track
+	end if
+	'`
+	_, err := exec.Command("bash", "-lc", script).Output()
+	if err != nil {
+		fmt.Println("Error executing back command:", err)
+		return false
+	}
+	return true
+}
+
+func next() bool {
+	script := `osascript -e '
+	if application "Spotify" is running then
+		tell application "Spotify" to next track
+	else if application "Music" is running then
+		tell application "Music" to next track
+	end if
+	'`
+	_, err := exec.Command("bash", "-lc", script).Output()
+	if err != nil {
+		fmt.Println("Error executing next command:", err)
+		return false
+	}
+	return true
+}
+
+func playPause() bool {
+	script := `osascript -e '
+	if application "Spotify" is running then
+		tell application "Spotify" to playpause
+	else if application "Music" is running then
+		tell application "Music" to playpause
+	end if
+	'`
+	_, err := exec.Command("bash", "-lc", script).Output()
+	if err != nil {
+		fmt.Println("Error executing play/pause command:", err)
+		return false
+	}
+	return true
 }
 
 func equal(a, b *MediaInfo) bool {
@@ -229,6 +276,45 @@ func Init() {
 					}
 				}
 			}
+		}
+	})
+
+	http.HandleFunc("/control/play-pause", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if playPause() {
+			w.WriteHeader(http.StatusOK)
+		} else {
+			http.Error(w, "Failed to toggle play/pause", http.StatusInternalServerError)
+			return
+		}
+	})
+
+	http.HandleFunc("/control/next", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if next() {
+			w.WriteHeader(http.StatusOK)
+		} else {
+			http.Error(w, "Failed to skip to next track", http.StatusInternalServerError)
+			return
+		}
+	})
+
+	http.HandleFunc("/control/back", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if back() {
+			w.WriteHeader(http.StatusOK)
+		} else {
+			http.Error(w, "Failed to skip to previous track", http.StatusInternalServerError)
+			return
 		}
 	})
 
