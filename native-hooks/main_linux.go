@@ -99,12 +99,22 @@ func fetchFromLinux() *MediaInfo {
 		}
 
 		if v, ok := metadata["mpris:length"]; ok && v.Value() != nil {
-			durationStr = fmt.Sprintf("%v", v.Value())
+			// Convert duration from microseconds to seconds
+			if length, ok := v.Value().(int64); ok {
+				durationStr = fmt.Sprintf("%.2f", float64(length)/1000000.0)
+			} else {
+				durationStr = fmt.Sprintf("%v", v.Value())
+			}
 		} else {
 			durationStr = "null"
 		}
-		if v, ok := metadata["mpris:position"]; ok && v.Value() != nil {
-			positionStr = fmt.Sprintf("%v", v.Value())
+
+		// Get Position
+		var position int64
+		err = player.Call("org.freedesktop.DBus.Properties.Get", 0,
+			"org.mpris.MediaPlayer2.Player", "Position").Store(&position)
+		if err == nil {
+			positionStr = fmt.Sprintf("%.2f", float64(position)/1000000.0)
 		} else {
 			positionStr = "null"
 		}
