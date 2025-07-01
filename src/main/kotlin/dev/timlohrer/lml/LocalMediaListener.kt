@@ -1,6 +1,7 @@
 package dev.timlohrer.lml
 
-import dev.timlohrer.lml.bridge.NativeBridge 
+import dev.timlohrer.lml.bridge.NativeBridge
+import dev.timlohrer.lml.bridge.NativeLoader
 import dev.timlohrer.lml.data.MediaInfo
 import dev.timlohrer.lml.networking.NativeHookClient
 import kotlinx.coroutines.CoroutineScope
@@ -65,18 +66,23 @@ object LocalMediaListener {
     }
     
     @Suppress("UNUSED")
-    fun back() {
-        NativeHookClient.back()
+    fun back(appName: String) {
+        NativeHookClient.back(appName)
     }
     
     @Suppress("UNUSED")
-    fun playPause() {
-        NativeHookClient.playPause()
+    fun playPause(appName: String) {
+        NativeHookClient.playPause(appName)
     }
     
     @Suppress("UNUSED")
-    fun next() {
-        NativeHookClient.next()
+    fun next(appName: String) {
+        NativeHookClient.next(appName)
+    }
+    
+    @Suppress("UNUSED")
+    fun isAvailable(): Boolean {
+        return isRunning || !(NativeLoader.isWindows && NativeLoader.arch == "arm64")
     }
     
     @Suppress("UNUSED")
@@ -85,7 +91,13 @@ object LocalMediaListener {
             println("LocalMediaListener is not running. No need to exit.")
             return
         }
+
+        NativeLoader.unloadNativeLibrary("native_hook")
+        if (NativeLoader.isWindows) {
+            NativeLoader.unloadNativeLibrary("bridge")
+        }
+        isRunning = false
         
-        NativeHookClient.exitNativeHook()
+//        NativeHookClient.exitNativeHook()
     }
 }
