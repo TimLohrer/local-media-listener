@@ -68,53 +68,30 @@ build_go() {
   local go_source_file=$2
   local temp_output_dir=$3
   local final_output_filename_base=$4
-
-  echo "==> Building Go project for darwin/$target_arch (source: $go_source_file)"
-
-  # Unset previous environment variables for clean build context
-  unset GOOS
-  unset GOARCH
-  unset CGO_ENABLED
-  unset CC
-  unset CXX
-
-  local output_extension="dylib"
-  local lib_prefix="lib"
-
-  # Construct the full Go library name including OS and arch suffix
-  local output_go_lib_name="${lib_prefix}${final_output_filename_base}_darwin_${target_arch}.${output_extension}"
-  # This is the path to the Go lib in the temporary directory
-  local temp_go_lib_path="${temp_output_dir}/${output_go_lib_name}"
-
-  # Ensure the temporary output directory exists
-  mkdir -p "$temp_output_dir"
-
-  local go_build_cmd="go build -buildmode=c-shared -o \"$temp_go_lib_path\" \"$GO_PACKAGE_BASE_PATH/$go_source_file\""
-
+  
+  echo "==> Building Go library for darwin/$target_arch..."
+  
   export GOOS=darwin
   export GOARCH="$target_arch"
   export CGO_ENABLED=1
   
+  local temp_go_lib_path="${temp_output_dir}/lib${final_output_filename_base}_darwin_${target_arch}.dylib"
+  mkdir -p "$temp_output_dir"
+  
   CURRENT_ARCH=$(uname -m)
   if [[ "$target_arch" == "amd64" && "$CURRENT_ARCH" == "arm64" ]]; then
-    # Cross-compiling from arm64 to amd64 using clang
     export CC="clang -target x86_64-apple-darwin"
     export CXX="clang++ -target x86_64-apple-darwin"
   elif [[ "$target_arch" == "arm64" && "$CURRENT_ARCH" == "x86_64" ]]; then
-    # Cross-compiling from x86_64 to arm64 using clang
     export CC="clang -target arm64-apple-darwin"
     export CXX="clang++ -target arm64-apple-darwin"
-  else
-    # Native compilation (e.g., arm64 on arm64, or amd64 on amd64)
-    # Use default clang for native builds
-    unset CC
-    unset CXX
   fi
-  eval $go_build_cmd
-  # Move the generated header file to the bridge directory
-  cp "${temp_go_lib_path%.dylib}.h" "./bridge/${lib_prefix}${final_output_filename_base}_darwin_${target_arch}.h"
-  cp "${temp_go_lib_path}" "./bridge/${temp_go_lib_path#./*/*/}"
-  cp "${temp_go_lib_path}" "$OUTPUT_ROOT_DIR/${output_go_lib_name}"
+  
+  go build -buildmode=c-shared -o "$temp_go_lib_path" "$GO_PACKAGE_BASE_PATH/$go_source_file"
+  
+  cp "${temp_go_lib_path%.dylib}.h" "./bridge/lib${final_output_filename_base}_darwin_${target_arch}.h"
+  cp "$temp_go_lib_path" "./bridge/"
+  cp "$temp_go_lib_path" "$OUTPUT_ROOT_DIR/"
 }
 
 # Function to build the C bridge shared library for macOS
@@ -126,79 +103,48 @@ build_go() {
 build_bridge() {
   local target_arch=$1
   local c_source_file_base=$2
-  local go_lib_temp_path=$3 # Path to the Go lib in the temp dir
+  local go_lib_temp_path=$3
   local final_output_filename_base=$4
-
-  echo "==> Building C bridge for darwin/$target_arch"
-
-  # Unset previous environment variables for clean build context
-  unset GOOS
-  unset GOARCH
-  unset CGO_ENABLED
-
-  local jni_os_dir="$JAVA_HOME/include/darwin"
-  local compiler_exe="clang" # Always use clang for macOS
-  local compiler_target_flag="" # The -target flag for clang
-
-  local output_extension="dylib"
-  local lib_prefix="lib"
   
-  # Determine if we are cross-compiling or native compiling on macOS
+  echo "==> Building C bridge for darwin/$target_arch..."
+  
+  local jni_os_dir="$JAVA_HOME/include/darwin"
+  local compiler_target_flag=""
+  
   CURRENT_ARCH=$(uname -m)
-
   if [[ "$target_arch" == "amd64" && "$CURRENT_ARCH" == "arm64" ]]; then
-    # Cross-compiling from arm64 to amd64
     compiler_target_flag="-target x86_64-apple-darwin"
   elif [[ "$target_arch" == "arm64" && "$CURRENT_ARCH" == "x86_64" ]]; then
-    # Cross-compiling from x86_64 to arm64
     compiler_target_flag="-target arm64-apple-darwin"
   else
-    # Native compilation (e.g., arm64 on arm64, or amd64 on amd64)
-    # Use -arch for native builds with clang
-    if [ "$target_arch" == "amd64" ]; then
-      compiler_target_flag="-arch x86_64"
-    else
-      compiler_target_flag="-arch arm64"
-    fi
+    compiler_target_flag="-arch ${target_arch/amd64/x86_64}"
   fi
-
-  # Construct the full C bridge library name including OS and arch suffix
-  local output_bridge_lib_name="${lib_prefix}${final_output_filename_base}_darwin_${target_arch}.${output_extension}"
-
+  
+  local output_bridge_lib_name="lib${final_output_filename_base}_darwin_${target_arch}.dylib"
+  
   cd bridge
-
-  # Compile the C source file into an object file
-  local compile_cmd_full="$compiler_exe $compiler_target_flag -c -fPIC \"$c_source_file_base\" -o bridge_darwin_${target_arch}.o -I\"$(dirname "$go_lib_temp_path")\" -I. -I\"$JAVA_HOME/include\" -I\"$jni_os_dir\""
-  echo "  Compile command: $compile_cmd_full" # Debugging
-  eval "$compile_cmd_full"
-
-  # Extract the base name of the Go library without extension or 'lib' prefix for linking
-  local go_lib_name_for_linking=$(basename "$go_lib_temp_path")
-  go_lib_name_for_linking="${go_lib_name_for_linking%.*}" # Remove .so/.dylib/.dll
-  if [[ "$go_lib_name_for_linking" == lib* ]]; then
-    go_lib_name_for_linking="${go_lib_name_for_linking#lib}" # Remove 'lib' prefix for -l flag
-  fi
-
-  # Link the object file into a shared library
-  local link_cmd_full="$compiler_exe $compiler_target_flag -shared -o \"$output_bridge_lib_name\" bridge_darwin_${target_arch}.o -L. -l\"$go_lib_name_for_linking\""
-  echo "  Link command: $link_cmd_full" # Debugging
-  eval "$link_cmd_full"
-
-  # Move the compiled C bridge library to the final output directory
-  mkdir -p "../$OUTPUT_ROOT_DIR" # Ensure target directory exists
+  
+  clang $compiler_target_flag -c -fPIC "$c_source_file_base" -o "bridge_darwin_${target_arch}.o" \
+    -I"$(dirname "$go_lib_temp_path")" -I. -I"$JAVA_HOME/include" -I"$jni_os_dir"
+    
+  local go_lib_name_for_linking=$(basename "${go_lib_temp_path%.*}")
+  go_lib_name_for_linking="${go_lib_name_for_linking#lib}"
+    
+  clang $compiler_target_flag -shared -o "$output_bridge_lib_name" "bridge_darwin_${target_arch}.o" \
+    -L. -l"$go_lib_name_for_linking"
+    
+  mkdir -p "../$OUTPUT_ROOT_DIR"
   mv "$output_bridge_lib_name" "../$OUTPUT_ROOT_DIR/"
-
-  cd .. # Go back to original script directory
+  
+  cd ..
 }
 
 # Cleanup function
 cleanup() {
-  echo "==> Cleaning up previous build artifacts..."
-  rm -f "$OUTPUT_ROOT_DIR/*.dylib"  
-  rm -rf "$TMP_BUILD_DIR/darwin*"
-  rm -f ./bridge/*.h # Remove Go-generated headers that might be left in bridge/
-  rm -f  ./bridge/*.o # Remove object files from bridge/
-  echo "Cleanup complete."
+  echo "==> Cleaning up..."
+  rm -f "$OUTPUT_ROOT_DIR"/*.dylib
+  rm -rf "$TMP_BUILD_DIR/darwin"*
+  rm -f ./bridge/*.h ./bridge/*.o
 }
 
 # --- Main Build Process ---
@@ -212,19 +158,26 @@ cleanup
 # Ensure the root output directory exists for the final artifacts
 mkdir -p "$OUTPUT_ROOT_DIR"
 
-# --- Build Combinations ---
+# --- Parallel Build Combinations ---
 
 CURRENT_UNIX_TIMESTAMP=$(date +%s)
 
-# macOS ARM64 (Apple Silicon)
-MACOS_ARM64_TMP_DIR="$TMP_BUILD_DIR/darwin-arm64"
-build_go "arm64" "main_darwin.go" "$MACOS_ARM64_TMP_DIR" "native_hook"
-build_bridge "arm64" "bridge_darwin_arm64.c" "$MACOS_ARM64_TMP_DIR/libnative_hook_darwin_arm64.dylib" "bridge"
+# macOS ARM64 (Apple Silicon) in background
+(
+  MACOS_ARM64_TMP_DIR="$TMP_BUILD_DIR/darwin-arm64"
+  build_go "arm64" "main_darwin.go" "$MACOS_ARM64_TMP_DIR" "native_hook"
+  build_bridge "arm64" "bridge_darwin_arm64.c" "$MACOS_ARM64_TMP_DIR/libnative_hook_darwin_arm64.dylib" "bridge"
+) &
 
-# macOS AMD64 (Intel Mac)
-MACOS_AMD64_TMP_DIR="$TMP_BUILD_DIR/darwin-amd64"
-build_go "amd64" "main_darwin.go" "$MACOS_AMD64_TMP_DIR" "native_hook"
-build_bridge "amd64" "bridge_darwin_amd64.c" "$MACOS_AMD64_TMP_DIR/libnative_hook_darwin_amd64.dylib" "bridge"
+# macOS AMD64 (Intel Mac) in background
+(
+  MACOS_AMD64_TMP_DIR="$TMP_BUILD_DIR/darwin-amd64"
+  build_go "amd64" "main_darwin.go" "$MACOS_AMD64_TMP_DIR" "native_hook"
+  build_bridge "amd64" "bridge_darwin_amd64.c" "$MACOS_AMD64_TMP_DIR/libnative_hook_darwin_amd64.dylib" "bridge"
+) &
+
+# Wait for all background jobs to finish
+wait
 
 NOW_UNIX_TIMESTAMP=$(date +%s)
 

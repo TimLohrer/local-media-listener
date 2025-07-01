@@ -1,8 +1,25 @@
+# Gradle
 .gradle
 build/
 !gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**/build/
 !**/src/test/**/build/
+
+# IDE files
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Build artifacts
+/native-hooks/tmp_native_build/
+/native-hooks/bridge/*.h
+/native-hooks/bridge/*.o
+/native-hooks/bridge/*.dylib
+/native-hooks/bridge/*.a
+/src/main/resources/lib/
+
+Thumbs.db
 
 ### IntelliJ IDEA ###
 .idea/modules.xml
