@@ -194,8 +194,8 @@ build_bridge() {
 # Cleanup function
 cleanup() {
   echo "==> Cleaning up previous build artifacts..."
-  rm -rf "$OUTPUT_ROOT_DIR"
-  rm -rf "$TMP_BUILD_DIR" # Remove temporary build directory
+  rm -f "$OUTPUT_ROOT_DIR/*.dylib"  
+  rm -rf "$TMP_BUILD_DIR/darwin*"
   rm -f ./bridge/*.h # Remove Go-generated headers that might be left in bridge/
   rm -f  ./bridge/*.o # Remove object files from bridge/
   echo "Cleanup complete."
@@ -214,6 +214,8 @@ mkdir -p "$OUTPUT_ROOT_DIR"
 
 # --- Build Combinations ---
 
+CURRENT_UNIX_TIMESTAMP=$(date +%s)
+
 # macOS ARM64 (Apple Silicon)
 MACOS_ARM64_TMP_DIR="$TMP_BUILD_DIR/darwin-arm64"
 build_go "arm64" "main_darwin.go" "$MACOS_ARM64_TMP_DIR" "native_hook"
@@ -224,4 +226,7 @@ MACOS_AMD64_TMP_DIR="$TMP_BUILD_DIR/darwin-amd64"
 build_go "amd64" "main_darwin.go" "$MACOS_AMD64_TMP_DIR" "native_hook"
 build_bridge "amd64" "bridge_darwin_amd64.c" "$MACOS_AMD64_TMP_DIR/libnative_hook_darwin_amd64.dylib" "bridge"
 
+NOW_UNIX_TIMESTAMP=$(date +%s)
+
 echo "==> All macOS builds completed. Final libraries are in: $OUTPUT_ROOT_DIR"
+echo "==> Build duration: $(( (NOW_UNIX_TIMESTAMP - CURRENT_UNIX_TIMESTAMP) / 60 ))m $(( (NOW_UNIX_TIMESTAMP - CURRENT_UNIX_TIMESTAMP) % 60 ))s"
