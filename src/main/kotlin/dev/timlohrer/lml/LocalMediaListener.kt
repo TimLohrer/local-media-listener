@@ -93,7 +93,7 @@ object LocalMediaListener {
         }
 
         NativeLoader.unloadNativeLibrary("native_hook")
-        if (NativeLoader.isWindows) {
+        if (!NativeLoader.isLinux) {
             NativeLoader.unloadNativeLibrary("bridge")
         }
         isRunning = false
