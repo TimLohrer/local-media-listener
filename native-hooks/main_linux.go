@@ -73,11 +73,31 @@ func fetchFromLinux() *MediaInfo {
 		if err != nil {
 			continue
 		}
-		title := metadata["xesam:title"].Value().(string)
-		artistArr := metadata["xesam:artist"].Value().([]string)
-		album := metadata["xesam:album"].Value().(string)
-		artUrl := metadata["mpris:artUrl"].Value().(string)
-		var durationStr, positionStr string
+		var title, album, artistsArr, artUrl, durationStr, positionStr string
+		if v, ok := metadata["xesam:title"]; !ok || v.Value() != nil {
+			title = fmt.Sprintf("%v", v.Value())
+		} else {
+			title = "null"
+		}
+
+		if v, ok := metadata["xesam:album"]; ok && v.Value() != nil {
+			album = fmt.Sprintf("%v", v.Value())
+		} else {
+			album = "null"
+		}
+
+		if v, ok := metadata["xesam:artist"]; !ok || v.Value() != nil {
+			artistsArr = fmt.Sprintf("%v", strings.Join(v.Value().([]string), ", "))
+		} else {
+			artistsArr = "null"
+		}
+
+		if v, ok := metadata["mpris:artUrl"]; !ok || v.Value() != nil {
+			artUrl = fmt.Sprintf("%v", v.Value())
+		} else {
+			artUrl = "null"
+		}
+
 		if v, ok := metadata["mpris:length"]; ok && v.Value() != nil {
 			durationStr = fmt.Sprintf("%v", v.Value())
 		} else {
@@ -91,7 +111,7 @@ func fetchFromLinux() *MediaInfo {
 
 		return &MediaInfo{
 			Title:    title,
-			Artist:   strings.Join(artistArr, ", "),
+			Artist:   artistsArr,
 			Album:    album,
 			ImageURL: artUrl,
 			Duration: durationStr,
