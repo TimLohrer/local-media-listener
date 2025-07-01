@@ -10,6 +10,14 @@ object NativeLoader {
     private val isWindows = osName.contains("win")
     private val isMac = osName.contains("mac")
     private val isLinux = osName.contains("nix") || osName.contains("nux") || osName.contains("aix")
+    private val osArch = System.getProperty("os.arch")
+    private val arch = when {
+        "x86" in osArch -> "amd64"
+        "amd64" in osArch -> "amd64"
+        "aarch64" in osArch -> "arm64"
+        "arm" in osArch -> "arm64"
+        else -> throw UnsupportedOperationException("Unsupported architecture: $osArch")
+    }
 
     private fun extractResource(resourcePath: String, outputFileName: String): File {
         val inputStream: InputStream = NativeLoader::class.java.getResourceAsStream(resourcePath)
@@ -25,9 +33,9 @@ object NativeLoader {
 
     fun loadNativeLibraryWithOptionalHelper(libName: String, helperExeName: String? = null): File? {
         val libFileName = when {
-            isWindows -> "$libName.dll"
-            isLinux -> "lib$libName.so"
-            isMac -> "lib$libName.dylib"
+            isWindows -> "${libName}_windows_${arch}.dll"
+            isLinux -> "lib${libName}_linux_${arch}.so"
+            isMac -> "lib${libName}_darwin_${arch}.dylib"
             else -> throw UnsupportedOperationException("Unsupported OS: $osName")
         }
         
