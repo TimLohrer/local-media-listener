@@ -165,6 +165,102 @@ func pollLoop(interval time.Duration) {
 	}
 }
 
+func back() bool {
+	conn, err := dbus.SessionBus()
+	if err != nil {
+		return false
+	}
+	var names []string
+	obj := conn.Object("org.freedesktop.DBus", "/org/freedesktop/DBus")
+	err = obj.Call("org.freedesktop.DBus.ListNames", 0).Store(&names)
+	if err != nil {
+		return false
+	}
+	for _, name := range names {
+		if !strings.HasPrefix(name, "org.mpris.MediaPlayer2.") {
+			continue
+		}
+		player := conn.Object(name, "/org/mpris/MediaPlayer2")
+		var status string
+		err = player.Call("org.freedesktop.DBus.Properties.Get", 0,
+			"org.mpris.MediaPlayer2.Player", "PlaybackStatus").Store(&status)
+		if err != nil || status != "Playing" {
+			continue
+		}
+		err = player.Call("org.mpris.MediaPlayer2.Player.Previous", 0).Store()
+		if err != nil {
+			fmt.Println("Error executing back command:", err)
+			return false
+		}
+		return true
+	}
+	return false
+}
+
+func next() bool {
+	conn, err := dbus.SessionBus()
+	if err != nil {
+		return false
+	}
+	var names []string
+	obj := conn.Object("org.freedesktop.DBus", "/org/freedesktop/DBus")
+	err = obj.Call("org.freedesktop.DBus.ListNames", 0).Store(&names)
+	if err != nil {
+		return false
+	}
+	for _, name := range names {
+		if !strings.HasPrefix(name, "org.mpris.MediaPlayer2.") {
+			continue
+		}
+		player := conn.Object(name, "/org/mpris/MediaPlayer2")
+		var status string
+		err = player.Call("org.freedesktop.DBus.Properties.Get", 0,
+			"org.mpris.MediaPlayer2.Player", "PlaybackStatus").Store(&status)
+		if err != nil || status != "Playing" {
+			continue
+		}
+		err = player.Call("org.mpris.MediaPlayer2.Player.Next", 0).Store()
+		if err != nil {
+			fmt.Println("Error executing next command:", err)
+			return false
+		}
+		return true
+	}
+	return false
+}
+
+func playPause() bool {
+	conn, err := dbus.SessionBus()
+	if err != nil {
+		return false
+	}
+	var names []string
+	obj := conn.Object("org.freedesktop.DBus", "/org/freedesktop/DBus")
+	err = obj.Call("org.freedesktop.DBus.ListNames", 0).Store(&names)
+	if err != nil {
+		return false
+	}
+	for _, name := range names {
+		if !strings.HasPrefix(name, "org.mpris.MediaPlayer2.") {
+			continue
+		}
+		player := conn.Object(name, "/org/mpris/MediaPlayer2")
+		var status string
+		err = player.Call("org.freedesktop.DBus.Properties.Get", 0,
+			"org.mpris.MediaPlayer2.Player", "PlaybackStatus").Store(&status)
+		if err != nil {
+			continue
+		}
+		err = player.Call("org.mpris.MediaPlayer2.Player.PlayPause", 0).Store()
+		if err != nil {
+			fmt.Println("Error executing play/pause command:", err)
+			return false
+		}
+		return true
+	}
+	return false
+}
+
 //export Init
 func Init() {
 	go pollLoop(500 * time.Millisecond)
@@ -244,6 +340,45 @@ func Init() {
 					}
 				}
 			}
+		}
+	})
+
+	http.HandleFunc("/control/play-pause", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if playPause() {
+			w.WriteHeader(http.StatusOK)
+		} else {
+			http.Error(w, "Failed to toggle play/pause", http.StatusInternalServerError)
+			return
+		}
+	})
+
+	http.HandleFunc("/control/next", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if next() {
+			w.WriteHeader(http.StatusOK)
+		} else {
+			http.Error(w, "Failed to skip to next track", http.StatusInternalServerError)
+			return
+		}
+	})
+
+	http.HandleFunc("/control/back", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if back() {
+			w.WriteHeader(http.StatusOK)
+		} else {
+			http.Error(w, "Failed to skip to previous track", http.StatusInternalServerError)
+			return
 		}
 	})
 
