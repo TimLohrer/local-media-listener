@@ -48,3 +48,12 @@ bin/
 
 ### Rust ###
 *target/
+
+### Custom ###
+/native-hooks/*.o
+/native-hooks/*.h
+/native-hooks/*.so
+/native-hooks/*.dylib
+/native-hooks/*.dll
+/native-hooks/*.exe
+/native-hooks/core
