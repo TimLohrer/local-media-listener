@@ -18,7 +18,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/godbus/dbus/v5"
 	"github.com/gorilla/websocket" // Import the websocket library
 )
 
@@ -69,137 +68,6 @@ func fetchFromWindows() *MediaInfo {
 	}
 }
 
-func fetchFromLinux() *MediaInfo {
-	conn, err := dbus.SessionBus()
-	if err != nil {
-		return nil
-	}
-	var names []string
-	obj := conn.Object("org.freedesktop.DBus", "/org/freedesktop/DBus")
-	err = obj.Call("org.freedesktop.DBus.ListNames", 0).Store(&names)
-	if err != nil {
-		return nil
-	}
-	for _, name := range names {
-		if !strings.HasPrefix(name, "org.mpris.MediaPlayer2.") {
-			continue
-		}
-		player := conn.Object(name, "/org/mpris/MediaPlayer2")
-		var status string
-		err = player.Call("org.freedesktop.DBus.Properties.Get", 0,
-			"org.mpris.MediaPlayer2.Player", "PlaybackStatus").Store(&status)
-		if err != nil || status != "Playing" {
-			continue
-		}
-		var metadata map[string]dbus.Variant
-		err = player.Call("org.freedesktop.DBus.Properties.Get", 0,
-			"org.mpris.MediaPlayer2.Player", "Metadata").Store(&metadata)
-		if err != nil {
-			continue
-		}
-		title := metadata["xesam:title"].Value().(string)
-		artistArr := metadata["xesam:artist"].Value().([]string)
-		album := metadata["xesam:album"].Value().(string)
-		artUrl := metadata["mpris:artUrl"].Value().(string)
-		duration := metadata["mpris:length"].Value().(string)
-		position := metadata["mpris:position"].Value().(string)
-		return &MediaInfo{
-			Title:    title,
-			Artist:   strings.Join(artistArr, ", "),
-			Album:    album,
-			ImageURL: artUrl,
-			Duration: duration,
-			Position: position,
-			AppName:  strings.TrimPrefix(name, "org.mpris.MediaPlayer2."),
-		}
-	}
-	return nil
-}
-
-func fetchFromMac() *MediaInfo {
-	script := `osascript -e '
-    if application "Spotify" is running then
-        tell application "Spotify"
-            if player state is playing then
-                set t to name of current track
-                set ar to artist of current track
-                set al to album of current track
-                set artUrl to artwork url of current track
-				try
-                    set dur to (duration of current track as string)
-                on error
-                    set dur to "null"
-                end try
-
-                try
-                    -- Player position is a property of the application, not the track
-                    set pos to (player position of application "Spotify" as string)
-                on error
-                    set pos to "null"
-                end try
-                return t & "|" & ar & "|" & al & "|" & artUrl & "|" & dur & "|" & pos & "|Spotify"
-            end if
-        end tell
-    else if application "Music" is running then
-        tell application "Music"
-            if player state is playing then
-                set t to name of current track
-                set ar to artist of current track
-                set al to album of current track
-				try
-					set artUrl to artwork url of current track
-				on error
-					set artUrl to "null"
-				end try
-				try
-                    set dur to (duration of current track as string)
-                on error
-                    set dur to "null"
-                end try
-
-                try
-                    -- Player position is a property of the application, not the track
-                    set pos to (player position of application "Music" as string)
-                on error
-                    set pos to "null"
-                end try
-                return t & "|" & ar & "|" & al & "|" & artUrl & "|" & dur & "|" & pos & "|AppleMusic"
-            end if
-        end tell
-    end if
-    '`
-	out, err := exec.Command("bash", "-lc", script).Output()
-	if err != nil {
-		return nil
-	}
-	parts := strings.Split(strings.TrimSpace(string(out)), "|")
-	if len(parts) < 7 {
-		return nil
-	}
-	return &MediaInfo{
-		Title:    parts[0],
-		Artist:   parts[1],
-		Album:    parts[2],
-		ImageURL: parts[3],
-		Duration: parts[4],
-		Position: parts[5],
-		AppName:  parts[6],
-	}
-}
-
-func getNowPlaying() *MediaInfo {
-	switch runtime.GOOS {
-	case "windows":
-		return fetchFromWindows()
-	case "linux":
-		return fetchFromLinux()
-	case "darwin":
-		return fetchFromMac()
-	default:
-		return nil
-	}
-}
-
 func equal(a, b *MediaInfo) bool {
 	if a == nil && b == nil {
 		return true
@@ -213,7 +81,7 @@ func equal(a, b *MediaInfo) bool {
 func pollLoop(interval time.Duration) {
 	for {
 		time.Sleep(interval)
-		info := getNowPlaying()
+		info := fetchFromWindows()
 		mu.Lock()
 		if !equal(info, currentInfo) {
 			currentInfo = info

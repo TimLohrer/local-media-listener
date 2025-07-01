@@ -1,8 +1,14 @@
 package dev.timlohrer.lml.bridge
 
 internal class NativeBridge {
+    
     init {
-        NativeLoader.loadNativeLibraryWithOptionalHelper("native_hook")
+        val osName = System.getProperty("os.name").lowercase()
+        val isLinux = osName.contains("nix") || osName.contains("nux") || osName.contains("aix")
+        
+        if (!isLinux) {
+            NativeLoader.loadNativeLibraryWithOptionalHelper("native_hook")
+        }
         val windowsHelperFile = NativeLoader.loadNativeLibraryWithOptionalHelper("bridge")
         
         windowsHelperFile?.let {

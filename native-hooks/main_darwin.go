@@ -18,7 +18,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/godbus/dbus/v5"
 	"github.com/gorilla/websocket" // Import the websocket library
 )
 
@@ -45,75 +44,6 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		return true
 	},
-}
-
-func fetchFromWindows() *MediaInfo {
-	cmd := exec.Command("./winmedia_helper.exe")
-	out, err := cmd.Output()
-	if err != nil {
-		fmt.Println("Error executing winmedia_helper:", err)
-		return nil
-	}
-	parts := strings.Split(strings.TrimSpace(string(out)), "|")
-	if len(parts) < 5 {
-		return nil
-	}
-	return &MediaInfo{
-		Title:    parts[0],
-		Artist:   parts[1],
-		Album:    parts[2],
-		ImageURL: parts[3],
-		Duration: "null",
-		Position: "null",
-		AppName:  parts[4],
-	}
-}
-
-func fetchFromLinux() *MediaInfo {
-	conn, err := dbus.SessionBus()
-	if err != nil {
-		return nil
-	}
-	var names []string
-	obj := conn.Object("org.freedesktop.DBus", "/org/freedesktop/DBus")
-	err = obj.Call("org.freedesktop.DBus.ListNames", 0).Store(&names)
-	if err != nil {
-		return nil
-	}
-	for _, name := range names {
-		if !strings.HasPrefix(name, "org.mpris.MediaPlayer2.") {
-			continue
-		}
-		player := conn.Object(name, "/org/mpris/MediaPlayer2")
-		var status string
-		err = player.Call("org.freedesktop.DBus.Properties.Get", 0,
-			"org.mpris.MediaPlayer2.Player", "PlaybackStatus").Store(&status)
-		if err != nil || status != "Playing" {
-			continue
-		}
-		var metadata map[string]dbus.Variant
-		err = player.Call("org.freedesktop.DBus.Properties.Get", 0,
-			"org.mpris.MediaPlayer2.Player", "Metadata").Store(&metadata)
-		if err != nil {
-			continue
-		}
-		title := metadata["xesam:title"].Value().(string)
-		artistArr := metadata["xesam:artist"].Value().([]string)
-		album := metadata["xesam:album"].Value().(string)
-		artUrl := metadata["mpris:artUrl"].Value().(string)
-		duration := metadata["mpris:length"].Value().(string)
-		position := metadata["mpris:position"].Value().(string)
-		return &MediaInfo{
-			Title:    title,
-			Artist:   strings.Join(artistArr, ", "),
-			Album:    album,
-			ImageURL: artUrl,
-			Duration: duration,
-			Position: position,
-			AppName:  strings.TrimPrefix(name, "org.mpris.MediaPlayer2."),
-		}
-	}
-	return nil
 }
 
 func fetchFromMac() *MediaInfo {
@@ -187,19 +117,6 @@ func fetchFromMac() *MediaInfo {
 	}
 }
 
-func getNowPlaying() *MediaInfo {
-	switch runtime.GOOS {
-	case "windows":
-		return fetchFromWindows()
-	case "linux":
-		return fetchFromLinux()
-	case "darwin":
-		return fetchFromMac()
-	default:
-		return nil
-	}
-}
-
 func equal(a, b *MediaInfo) bool {
 	if a == nil && b == nil {
 		return true
@@ -213,7 +130,7 @@ func equal(a, b *MediaInfo) bool {
 func pollLoop(interval time.Duration) {
 	for {
 		time.Sleep(interval)
-		info := getNowPlaying()
+		info := fetchFromMac()
 		mu.Lock()
 		if !equal(info, currentInfo) {
 			currentInfo = info

@@ -29,7 +29,7 @@ object NativeLoader {
 
         inputStream.use { it.copyTo(FileOutputStream(tempFile)) }
         return tempFile
-    }
+    }   
 
     fun loadNativeLibraryWithOptionalHelper(libName: String, helperExeName: String? = null): File? {
         val libFileName = when {
