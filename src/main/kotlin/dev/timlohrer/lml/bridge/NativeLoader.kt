@@ -7,11 +7,11 @@ import kotlin.io.path.createTempFile
 
 object NativeLoader {
     private val osName = System.getProperty("os.name").lowercase()
-    private val isWindows = osName.contains("win")
-    private val isMac = osName.contains("mac")
-    private val isLinux = osName.contains("nix") || osName.contains("nux") || osName.contains("aix")
+    val isWindows = osName.contains("win")
+    val isMac = osName.contains("mac")
+    val isLinux = osName.contains("nix") || osName.contains("nux") || osName.contains("aix")
     private val osArch = System.getProperty("os.arch")
-    private val arch = when {
+    val arch = when {
         "x86" in osArch -> "amd64"
         "amd64" in osArch -> "amd64"
         "aarch64" in osArch -> "arm64"
@@ -57,5 +57,22 @@ object NativeLoader {
         }
 
         return helperFile
+    }
+    
+    fun unloadNativeLibrary(libName: String) {
+        try {
+            val libFileName = when {
+                isWindows -> "${libName}_windows_${arch}.dll"
+                isLinux -> "lib${libName}_linux_${arch}.so"
+                isMac -> "lib${libName}_darwin_${arch}.dylib"
+                else -> throw UnsupportedOperationException("Unsupported OS: $osName")
+            }
+            val libPath = "/lib/$libFileName"
+            val extractedLib = extractResource(libPath, libFileName)
+            System.load(extractedLib.absolutePath)
+            println("Unloaded native library: ${extractedLib.absolutePath}")
+        } catch (e: Exception) {
+            println("Failed to unload native library: ${e.message}")
+        }
     }
 }

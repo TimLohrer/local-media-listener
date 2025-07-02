@@ -1,6 +1,7 @@
 package dev.timlohrer.lml
 
-import dev.timlohrer.lml.bridge.NativeBridge 
+import dev.timlohrer.lml.bridge.NativeBridge
+import dev.timlohrer.lml.bridge.NativeLoader
 import dev.timlohrer.lml.data.MediaInfo
 import dev.timlohrer.lml.networking.NativeHookClient
 import kotlinx.coroutines.CoroutineScope
@@ -12,6 +13,8 @@ object LocalMediaListener {
     internal const val BASE_URL = "http://localhost:14565"
     internal const val BASE_WS_URL = "ws://localhost:14565"
     var isRunning = false
+    internal var native: NativeBridge? = null
+    internal var lastStartupShutdownTime: Long = 0
     
     @JvmStatic
     fun main(args: Array<String>) {
@@ -34,10 +37,11 @@ object LocalMediaListener {
         
         println("Initializing LocalMediaListener...")
 
+        lastStartupShutdownTime = System.currentTimeMillis()
         CoroutineScope(Dispatchers.IO).launch {
             CoroutineScope(Dispatchers.IO).launch {
                 try {
-                    NativeBridge()
+                    native = NativeBridge()
                 } catch (e: Exception) {
                     println("Failed to initialize NativeBridge: ${e.message}")
                     return@launch
@@ -65,27 +69,38 @@ object LocalMediaListener {
     }
     
     @Suppress("UNUSED")
-    fun back() {
-        NativeHookClient.back()
+    fun back(appName: String) {
+        NativeHookClient.back(appName)
     }
     
     @Suppress("UNUSED")
-    fun playPause() {
-        NativeHookClient.playPause()
+    fun playPause(appName: String) {
+        NativeHookClient.playPause(appName)
     }
     
     @Suppress("UNUSED")
-    fun next() {
-        NativeHookClient.next()
+    fun next(appName: String) {
+        NativeHookClient.next(appName)
+    }
+    
+    @Suppress("UNUSED")
+    fun isAvailable(): Boolean {
+        val now = System.currentTimeMillis()
+        return (now - lastStartupShutdownTime > 3 * 1000) && (isRunning || !(NativeLoader.isWindows && NativeLoader.arch == "arm64"))
     }
     
     @Suppress("UNUSED")
     fun closeHook() {
-        if (!isRunning) {
+        if (!isRunning || native == null) {
             println("LocalMediaListener is not running. No need to exit.")
             return
         }
+
+        println("Shutting down LocalMediaListener...")
+        lastStartupShutdownTime = System.currentTimeMillis()
         
-        NativeHookClient.exitNativeHook()
+        native!!.shutdownNativeHook()
+        System.gc()
+        isRunning = false
     }
 }

@@ -8,10 +8,11 @@ package main
 */
 import "C"
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
-	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -30,9 +31,15 @@ type MediaInfo struct {
 	AppName  string `json:"source"`
 }
 
+type Application struct {
+	AppName     string
+	DisplayName string
+}
+
 var (
 	mu          sync.RWMutex
 	currentInfo *MediaInfo
+	httpServer  *http.Server
 	wsClients   = make(map[*websocket.Conn]chan *MediaInfo)
 	clientMux   sync.Mutex // Protects wsClients map
 )
@@ -45,64 +52,85 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
-func fetchFromMac() *MediaInfo {
-	script := `osascript -e '
-    if application "Spotify" is running then
-        tell application "Spotify"
+var supportedApplications = []Application{
+	// Media Players
+	{AppName: "Spotify", DisplayName: "Spotify"},
+	{AppName: "Music", DisplayName: "Apple Music"}, // Native Music app
+	//{AppName: "VLC", DisplayName: "VLC Media Player"},
+
+	// Browsers - Disabled for performance reasons
+	//{AppName: "Safari", DisplayName: "Safari"},
+	//{AppName: "Google Chrome", DisplayName: "Google Chrome"},
+	//{AppName: "Firefox", DisplayName: "Mozilla Firefox"},
+	//{AppName: "Brave Browser", DisplayName: "Brave"},
+	//{AppName: "Arc", DisplayName: "Arc Browser"},
+	//{AppName: "Opera", DisplayName: "Opera"},
+}
+
+func getAppNameFromDisplayName(appName string) string {
+	var result = ""
+	for _, app := range supportedApplications {
+		if app.DisplayName == appName {
+			result = app.AppName
+		}
+	}
+	return result
+}
+
+func fetchFromMac(appName string, displayName string) *MediaInfo {
+	script := fmt.Sprintf(`osascript -e '
+    if application "%s" is running then
+        tell application "%s"
             if player state is playing then
-                set t to name of current track
-                set ar to artist of current track
-                set al to album of current track
-                set artUrl to artwork url of current track
 				try
-                    set dur to (duration of current track as string)
+                  set t to name of current track
                 on error
-                    set dur to "null"
+                  set al to "null"
                 end try
 
                 try
-                    -- Player position is a property of the application, not the track
-                    set pos to (player position of application "Spotify" as string)
+                  set ar to artist of current track
                 on error
-                    set pos to "null"
+                  set al to "null"
                 end try
-                return t & "|" & ar & "|" & al & "|" & artUrl & "|" & dur & "|" & pos & "|Spotify"
-            end if
-        end tell
-    else if application "Music" is running then
-        tell application "Music"
-            if player state is playing then
-                set t to name of current track
-                set ar to artist of current track
-                set al to album of current track
+
 				try
-					set artUrl to artwork url of current track
-				on error
-					set artUrl to "null"
-				end try
-				try
-                    set dur to (duration of current track as string)
+                  set al to album of current track
                 on error
-                    set dur to "null"
+                  set al to "null"
                 end try
 
                 try
-                    -- Player position is a property of the application, not the track
-                    set pos to (player position of application "Music" as string)
+                  set artUrl to artwork url of current track
+                on error
+                  set artUrl to "null"
+                end try
+
+                try
+                    set dur to duration of current track
+                	set dur to dur as string
+                on error
+                    set dur to "null"
+                end try
+    
+                try
+                    set pos to player position
+                	set pos to pos as string
                 on error
                     set pos to "null"
                 end try
-                return t & "|" & ar & "|" & al & "|" & artUrl & "|" & dur & "|" & pos & "|AppleMusic"
+    
+                return t & "|" & ar & "|" & al & "|" & artUrl & "|" & dur & "|" & pos
             end if
         end tell
     end if
-    '`
+    '`, appName, appName)
 	out, err := exec.Command("bash", "-lc", script).Output()
 	if err != nil {
 		return nil
 	}
 	parts := strings.Split(strings.TrimSpace(string(out)), "|")
-	if len(parts) < 7 {
+	if len(parts) < 6 {
 		return nil
 	}
 	return &MediaInfo{
@@ -112,18 +140,16 @@ func fetchFromMac() *MediaInfo {
 		ImageURL: parts[3],
 		Duration: parts[4],
 		Position: parts[5],
-		AppName:  parts[6],
+		AppName:  displayName,
 	}
 }
 
-func back() bool {
-	script := `osascript -e '
-	if application "Spotify" is running then
-		tell application "Spotify" to previous track
-	else if application "Music" is running then
-		tell application "Music" to previous track
+func back(appName string) bool {
+	script := fmt.Sprintf(`osascript -e '
+	if application "%s" is running then
+		tell application "%s" to previous track
 	end if
-	'`
+	'`, appName, appName)
 	_, err := exec.Command("bash", "-lc", script).Output()
 	if err != nil {
 		fmt.Println("Error executing back command:", err)
@@ -132,14 +158,13 @@ func back() bool {
 	return true
 }
 
-func next() bool {
-	script := `osascript -e '
-	if application "Spotify" is running then
-		tell application "Spotify" to next track
-	else if application "Music" is running then
-		tell application "Music" to next track
-	end if
-	'`
+func next(appName string) bool {
+	script := fmt.Sprintf(`osascript -e '
+		if application "%s" is running then
+			tell application "%s" to next track
+		end if
+	'`, appName, appName)
+
 	_, err := exec.Command("bash", "-lc", script).Output()
 	if err != nil {
 		fmt.Println("Error executing next command:", err)
@@ -148,14 +173,12 @@ func next() bool {
 	return true
 }
 
-func playPause() bool {
-	script := `osascript -e '
-	if application "Spotify" is running then
-		tell application "Spotify" to playpause
-	else if application "Music" is running then
-		tell application "Music" to playpause
+func playPause(appName string) bool {
+	script := fmt.Sprintf(`osascript -e '
+	if application "%s" is running then
+		tell application "%s" to playpause
 	end if
-	'`
+	'`, appName, appName)
 	_, err := exec.Command("bash", "-lc", script).Output()
 	if err != nil {
 		fmt.Println("Error executing play/pause command:", err)
@@ -177,23 +200,27 @@ func equal(a, b *MediaInfo) bool {
 func pollLoop(interval time.Duration) {
 	for {
 		time.Sleep(interval)
-		info := fetchFromMac()
-		mu.Lock()
-		if !equal(info, currentInfo) {
-			currentInfo = info
-			// Notify all connected WebSocket clients
-			clientMux.Lock()
-			for _, ch := range wsClients {
-				select {
-				case ch <- info:
-					// Sent successfully
-				default:
-					fmt.Println("Warning: WebSocket client channel is full, skipping update.")
+		for _, app := range supportedApplications {
+			var info = fetchFromMac(app.AppName, app.DisplayName)
+			if info != nil {
+				mu.Lock()
+				if !equal(info, currentInfo) {
+					currentInfo = info
+					// Notify all connected WebSocket clients
+					clientMux.Lock()
+					for _, ch := range wsClients {
+						select {
+						case ch <- info:
+							// Sent successfully
+						default:
+							fmt.Println("Warning: WebSocket client channel is full, skipping update.")
+						}
+					}
+					clientMux.Unlock()
 				}
+				mu.Unlock()
 			}
-			clientMux.Unlock()
 		}
-		mu.Unlock()
 	}
 }
 
@@ -201,11 +228,13 @@ func pollLoop(interval time.Duration) {
 func Init() {
 	go pollLoop(500 * time.Millisecond)
 
-	http.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	http.HandleFunc("/now-playing", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/now-playing", func(w http.ResponseWriter, r *http.Request) {
 		mu.RLock()
 		defer mu.RUnlock()
 		if currentInfo == nil {
@@ -216,7 +245,7 @@ func Init() {
 		json.NewEncoder(w).Encode(currentInfo)
 	})
 
-	http.HandleFunc("/now-playing/subscribe", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/now-playing/subscribe", func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			fmt.Println("WebSocket upgrade error:", err)
@@ -253,6 +282,7 @@ func Init() {
 			clientMux.Lock()
 			delete(wsClients, conn)
 			close(clientChan)
+			wsClients = make(map[*websocket.Conn]chan *MediaInfo)
 			clientMux.Unlock()
 			fmt.Println("WebSocket client disconnected.")
 		}()
@@ -279,66 +309,116 @@ func Init() {
 		}
 	})
 
-	http.HandleFunc("/control/play-pause", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/control/play-pause", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		if playPause() {
+
+		defer func(Body io.ReadCloser) {
+			err := Body.Close()
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+		}(r.Body)
+		bodyBytes, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "Failed to read body", http.StatusInternalServerError)
+			return
+		}
+
+		bodyStr := string(bodyBytes)
+		if playPause(getAppNameFromDisplayName(bodyStr)) {
 			w.WriteHeader(http.StatusOK)
 		} else {
-			http.Error(w, "Failed to toggle play/pause", http.StatusInternalServerError)
-			return
+			w.WriteHeader(http.StatusInternalServerError)
 		}
 	})
 
-	http.HandleFunc("/control/next", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/control/next", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		if next() {
+
+		defer func(Body io.ReadCloser) {
+			err := Body.Close()
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+		}(r.Body)
+		bodyBytes, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "Failed to read body", http.StatusInternalServerError)
+			return
+		}
+
+		bodyStr := string(bodyBytes)
+		if next(getAppNameFromDisplayName(bodyStr)) {
 			w.WriteHeader(http.StatusOK)
 		} else {
-			http.Error(w, "Failed to skip to next track", http.StatusInternalServerError)
-			return
+			w.WriteHeader(http.StatusInternalServerError)
 		}
 	})
 
-	http.HandleFunc("/control/back", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/control/back", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		if back() {
-			w.WriteHeader(http.StatusOK)
-		} else {
-			http.Error(w, "Failed to skip to previous track", http.StatusInternalServerError)
+
+		defer func(Body io.ReadCloser) {
+			err := Body.Close()
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+		}(r.Body)
+		bodyBytes, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "Failed to read body", http.StatusInternalServerError)
 			return
 		}
-	})
 
-	http.HandleFunc("/exit", func(w http.ResponseWriter, r *http.Request) {
-		clientMux.Lock()
-		for conn, ch := range wsClients {
-			conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "Server exiting"))
-			conn.Close()
-			close(ch)
+		bodyStr := string(bodyBytes)
+		if back(getAppNameFromDisplayName(bodyStr)) {
+			w.WriteHeader(http.StatusOK)
+		} else {
+			w.WriteHeader(http.StatusInternalServerError)
 		}
-		wsClients = make(map[*websocket.Conn]chan *MediaInfo) // Clear the map
-		clientMux.Unlock()
-
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprintln(w, "Exiting...")
-		os.Exit(0)
 	})
 
-	port := "14565"
-	fmt.Printf("OS Media daemon listening on http://localhost:%s\n", port)
-	if err := http.ListenAndServe("127.0.0.1:"+port, nil); err != nil {
-		fmt.Println("Error:", err)
-		os.Exit(1)
+	httpServer = &http.Server{
+		Addr:    "127.0.0.1:14565",
+		Handler: mux,
 	}
+
+	go func() {
+		fmt.Println("OS Media daemon listening on http://localhost:14565")
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			fmt.Println("HTTP server error:", err)
+		}
+	}()
+}
+
+//export Shutdown
+func Shutdown() {
+	fmt.Println("Shutting down HTTP server...")
+
+	if httpServer != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+		if err := httpServer.Shutdown(ctx); err != nil {
+			fmt.Println("Error during server shutdown:", err)
+		} else {
+			fmt.Println("HTTP server shut down cleanly.")
+		}
+		httpServer = nil
+	}
+
+	fmt.Println("Shutdown complete.")
 }
 
 func main() {}

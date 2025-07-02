@@ -126,7 +126,7 @@ internal object NativeHookClient {
         }
     }
     
-    fun back() {
+    fun back(appName: String) {
         if (!LocalMediaListener.isRunning) {
             println("LocalMediaListener is not running. No need to back.")
             return
@@ -134,7 +134,7 @@ internal object NativeHookClient {
         
         val request = HttpRequest.newBuilder()
             .uri(URI.create("${LocalMediaListener.BASE_URL}/control/back"))
-            .POST(HttpRequest.BodyPublishers.noBody())
+            .POST(HttpRequest.BodyPublishers.ofString(appName))
             .build()
         
         try {
@@ -149,7 +149,7 @@ internal object NativeHookClient {
         }
     }
     
-    fun next() {
+    fun next(appName: String) {
         if (!LocalMediaListener.isRunning) {
             println("LocalMediaListener is not running. No need to next.")
             return
@@ -157,7 +157,7 @@ internal object NativeHookClient {
         
         val request = HttpRequest.newBuilder()
             .uri(URI.create("${LocalMediaListener.BASE_URL}/control/next"))
-            .POST(HttpRequest.BodyPublishers.noBody())
+            .POST(HttpRequest.BodyPublishers.ofString(appName))
             .build()
         
         try {
@@ -172,7 +172,7 @@ internal object NativeHookClient {
         }
     }
     
-fun playPause() {
+fun playPause(appName: String) {
         if (!LocalMediaListener.isRunning) {
             println("LocalMediaListener is not running. No need to play/pause.")
             return
@@ -180,7 +180,7 @@ fun playPause() {
         
         val request = HttpRequest.newBuilder()
             .uri(URI.create("${LocalMediaListener.BASE_URL}/control/play-pause"))
-            .POST(HttpRequest.BodyPublishers.noBody())
+            .POST(HttpRequest.BodyPublishers.ofString(appName))
             .build()
         
         try {
@@ -193,31 +193,5 @@ fun playPause() {
             println("Error toggling play/pause: ${e.message}")
             return
         }
-    }
-        
-    fun exitNativeHook() {
-        if (!LocalMediaListener.isRunning) {
-            println("LocalMediaListener is not running. No need to exit.")
-            return
-        }
-        
-        val request = HttpRequest.newBuilder()
-            .uri(URI.create("${LocalMediaListener.BASE_URL}/exit"))
-            .GET()
-            .build()
-        
-        try {
-            val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
-            if (response.statusCode() != 200) {
-                println("Failed to exit NativeHook: ${response.statusCode()}")
-                return
-            }
-        } catch (e: Exception) {
-            println("Error exiting NativeHook: ${e.message}")
-            return
-        }
-        
-        LocalMediaListener.isRunning = false
-        println("Exited NativeHook")
     }
 }
