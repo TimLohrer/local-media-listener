@@ -24,16 +24,22 @@ object NativeLoader {
             ?: throw IllegalArgumentException("Resource not found: $resourcePath")
 
         val suffix = outputFileName.substringAfterLast('.', "")
-        val tempFile = createTempFile(outputFileName, if (suffix.isNotEmpty()) ".$suffix" else "").toFile()
+        val tempFile = createTempFile(outputFileName, if (suffix.isNotEmpty()) ".${suffix}" else "").toFile()
         tempFile.deleteOnExit()
 
-        inputStream.use { it.copyTo(FileOutputStream(tempFile)) }
+        // Ensure both streams are closed so the file handle is released on Windows
+        inputStream.use { input ->
+            FileOutputStream(tempFile).use { output ->
+                input.copyTo(output)
+            }
+        }
+
         return tempFile
     }   
 
     fun loadNativeLibraryWithOptionalHelper(libName: String, helperExeName: String? = null): File? {
         val libFileName = when {
-            isWindows -> "${libName}_windows_${arch}.dll"
+            isWindows -> "lib${libName}_windows_${arch}.dll"
             isLinux -> "lib${libName}_linux_${arch}.so"
             isMac -> "lib${libName}_darwin_${arch}.dylib"
             else -> throw UnsupportedOperationException("Unsupported OS: $osName")
@@ -62,7 +68,7 @@ object NativeLoader {
     fun unloadNativeLibrary(libName: String) {
         try {
             val libFileName = when {
-                isWindows -> "${libName}_windows_${arch}.dll"
+                isWindows -> "lib${libName}_windows_${arch}.dll"
                 isLinux -> "lib${libName}_linux_${arch}.so"
                 isMac -> "lib${libName}_darwin_${arch}.dylib"
                 else -> throw UnsupportedOperationException("Unsupported OS: $osName")

@@ -1,0 +1,36 @@
+# Linux AMD64
+FROM ubuntu:22.04
+
+# no interaction
+ENV DEBIAN_FRONTEND=noninteractive
+
+# install base deps
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    cmake \
+    pkg-config \
+    curl \
+    wget \
+    git \
+    python3 \
+    python3-pip \
+    openjdk-11-jdk \
+    gcc-x86-64-linux-gnu \
+    g++-x86-64-linux-gnu \
+    && rm -rf /var/lib/apt/lists/*
+
+# install development libraries for amd64
+RUN apt-get update && apt-get install -y \
+    libdbus-1-dev \
+    libboost-system-dev \
+    libdbus-1-3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# set java home
+ENV JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
+
+# create working directory
+WORKDIR /workspace
+
+# default command
+CMD ["/bin/bash"] 

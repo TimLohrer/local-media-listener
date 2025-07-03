@@ -74,3 +74,10 @@ bin/
 /native-hooks/*.dll
 /native-hooks/*.exe
 /native-hooks/core
+/native-hooks/build*
+/native-hooks/tmp*
+/native-hooks/out
+/native-hooks/vcpkg
+
+.vs
+.cache

@@ -27,50 +27,13 @@ kotlin {
     jvmToolchain(21)
 }
 
-val cleanNativeLibs = tasks.register("cleanNativeLibs") {
-    description = "Clean up native libraries from resources/lib"
-    group = "native"
-    
-    doLast {
-        val libDir = file("src/main/resources/lib")
-        if (libDir.exists()) {
-            libDir.listFiles()?.forEach { file ->
-                if (file.isFile && (file.extension == "so" || file.extension == "dylib")) {
-                    println("Deleting: ${file.name}")
-                    file.delete()
-                }
-            }
-        }
-    }
-}
-
-val buildNativeLibs = tasks.register<Exec>("buildNativeLibs") {
-    description = "Build native libraries for all platforms"
-    group = "native"
-    
-    dependsOn(cleanNativeLibs)
-    
-    workingDir = file("native-hooks")
-    commandLine = listOf("./build_all.sh")
-    
-    // Ensure the script is executable
-    doFirst {
-        val buildScript = file("native-hooks/build_all.sh")
-        if (!buildScript.canExecute()) {
-            buildScript.setExecutable(true)
-        }
-    }
-}
-
 tasks.jar {
-    dependsOn(buildNativeLibs)
     manifest {
         attributes["Main-Class"] = "dev.timlohrer.lml.LocalMediaListener"
     }
 }
 
 tasks.shadowJar {
-    dependsOn(buildNativeLibs)
     archiveClassifier.set("")
     mergeServiceFiles()
 }

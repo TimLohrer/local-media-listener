@@ -70,7 +70,7 @@ internal object NativeHookClient {
         }
 
         val request = Request.Builder()
-            .url("${LocalMediaListener.BASE_WS_URL}/now-playing/subscribe")
+            .url("${LocalMediaListener.BASE_WS_URL}")
             .build()
 
         lateinit var currentWebSocket: WebSocket
