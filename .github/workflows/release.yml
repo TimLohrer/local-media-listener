@@ -1,0 +1,133 @@
+name: Release build
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  # 1) Build native libs on macOS and Linux (via Docker)
+  native-build:  # builds darwin and linux targets
+    runs-on: macos-latest
+    outputs:
+      artifact-path: ${{ steps.upload.outputs.artifact-path }}
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Build Darwin binaries (universal x86_64+arm64)
+        run: |
+          cd native-hooks
+          mkdir -p build-darwin
+          cd build-darwin
+          cmake .. -DBUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64"
+          cmake --build . --parallel
+          mkdir -p artifacts/darwin
+          cp libnative_hook_darwin_amd64.dylib artifacts/darwin/
+          cp libnative_hook_darwin_arm64.dylib artifacts/darwin/
+
+      - name: Build Linux binaries (amd64)
+        run: |
+          docker build -f native-hooks/docker/Dockerfile.linux-amd64 -t native-build-amd64 .
+          docker run --rm -v ${{ github.workspace }}/native-hooks:/workspace native-build-amd64 bash -lc "
+            cd /workspace && \
+            mkdir -p build-linux-amd64 && cd build-linux-amd64 && \
+            cmake .. -DBUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release && \
+            cmake --build . --parallel && \
+            mkdir -p artifacts/linux-amd64 && cp libnative_hook_linux_amd64.so artifacts/linux-amd64/"
+
+      - name: Build Linux binaries (arm64)
+        run: |
+          docker build -f native-hooks/docker/Dockerfile.linux-arm64 -t native-build-arm64 .
+          docker run --rm -v ${{ github.workspace }}/native-hooks:/workspace native-build-arm64 bash -lc "
+            cd /workspace && \
+            mkdir -p build-linux-arm64 && cd build-linux-arm64 && \
+            cmake .. -DBUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release && \
+            cmake --build . --parallel && \
+            mkdir -p artifacts/linux-arm64 && cp libnative_hook_linux_arm64.so artifacts/linux-arm64/"
+
+      - name: Upload native artifacts (Linux & macOS)
+        id: upload
+        uses: actions/upload-artifact@v3
+        with:
+          name: native-libs
+          path: |
+            native-hooks/artifacts/linux-amd64
+            native-hooks/artifacts/linux-arm64
+            native-hooks/artifacts/darwin
+
+  # 2) Build native libs on Windows
+  windows-build:
+    needs: native-build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install and bootstrap vcpkg
+        shell: powershell
+        run: |
+          $env:VCPKG_ROOT = "$env:GITHUB_WORKSPACE\vcpkg"
+          git clone https://github.com/microsoft/vcpkg.git $env:VCPKG_ROOT
+          & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat"
+
+      - name: Install Windows dependencies via vcpkg
+        shell: powershell
+        run: |
+          $env:VCPKG_ROOT = "$env:GITHUB_WORKSPACE\vcpkg"
+          & "$env:VCPKG_ROOT\vcpkg.exe" install boost-system boost-beast cppwinrt gtest
+
+      - name: Build Windows binaries
+        shell: powershell
+        run: |
+          $env:VCPKG_ROOT = "$env:GITHUB_WORKSPACE\vcpkg"
+          cd native-hooks
+          mkdir build-windows
+          cd build-windows
+          cmake .. -DBUILD_TESTS=OFF -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake" -DCMAKE_BUILD_TYPE=Release
+          cmake --build . --parallel
+          New-Item -ItemType Directory -Path artifacts | Out-Null
+          Copy-Item -Path libnative_hook_windows_amd64.dll -Destination artifacts
+
+      - name: Upload Windows native artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: native-libs
+          path: native-hooks/build-windows/artifacts
+
+  # 3) Assemble all binaries and build the final JAR
+  assemble-and-release:
+    needs: [native-build, windows-build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Download all native artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: native-libs
+          path: native-hooks/artifacts-all
+
+      - name: Copy native libs into Java resources
+        run: |
+          rm -rf src/main/resources/lib/*
+          mkdir -p src/main/resources/lib
+          cp native-hooks/artifacts-all/*/* src/main/resources/lib/
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v3
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Build and publish Shadow JAR
+        run: |
+          ./gradlew shadowJar
+
+      - name: Upload final JAR
+        uses: actions/upload-artifact@v3
+        with:
+          name: lml-final-jar
+          path: build/libs/**/*.jar 
