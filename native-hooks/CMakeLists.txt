@@ -5,6 +5,14 @@ if(POLICY CMP0074)
     cmake_policy(SET CMP0074 NEW)
 endif()
 
+# Enable ccache for faster incremental builds
+find_program(CCACHE_PROGRAM ccache)
+if(CCACHE_PROGRAM)
+    set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE "${CCACHE_PROGRAM}")
+    set_property(GLOBAL PROPERTY RULE_LAUNCH_LINK "${CCACHE_PROGRAM}")
+    message(STATUS "Using ccache for faster builds")
+endif()
+
 # windows stuff wooow
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 

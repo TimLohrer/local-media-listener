@@ -7,30 +7,67 @@ on:
     branches: [ main ]
 
 jobs:
-  build-linux:
-    runs-on: ubuntu-latest
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            cache-key: apt
+          - os: macos-latest
+            platform: macos
+            cache-key: brew
+          - os: windows-latest
+            platform: windows
+            cache-key: vcpkg
+    
+    runs-on: ${{ matrix.os }}
+    
     steps:
       - uses: actions/checkout@v3
 
-      - name: Install dependencies
+      # Linux-specific caching and setup
+      - name: Cache apt packages
+        if: matrix.platform == 'linux'
+        uses: actions/cache@v3
+        with:
+          path: /var/cache/apt/archives
+          key: ${{ runner.os }}-apt-${{ hashFiles('**/CMakeLists.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-apt-
+
+      # macOS-specific caching and setup
+      - name: Cache Homebrew
+        if: matrix.platform == 'macos'
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/Library/Caches/Homebrew
+            /opt/homebrew/Cellar
+            /opt/homebrew/Caskroom
+          key: ${{ runner.os }}-brew-${{ hashFiles('**/CMakeLists.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-brew-
+
+      # Windows-specific caching and setup
+      - name: Cache vcpkg
+        if: matrix.platform == 'windows'
+        uses: actions/cache@v3
+        with:
+          path: vcpkg
+          key: ${{ runner.os }}-vcpkg-${{ hashFiles('**/CMakeLists.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-vcpkg-
+
+      # Install dependencies based on platform
+      - name: Install Linux dependencies
+        if: matrix.platform == 'linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake pkg-config curl wget git python3 python3-pip openjdk-11-jdk gcc-x86-64-linux-gnu g++-x86-64-linux-gnu libboost-system-dev libdbus-1-dev libdbus-1-3 libgtest-dev googletest
+          sudo apt-get install -y build-essential cmake pkg-config curl wget git python3 python3-pip openjdk-11-jdk gcc-x86-64-linux-gnu g++-x86-64-linux-gnu libboost-system-dev libdbus-1-dev libdbus-1-3 libgtest-dev googletest ccache
 
-      - name: Build and test
-        run: |
-          cd native-hooks
-          mkdir -p build && cd build
-          cmake .. -DBUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release
-          cmake --build . --parallel
-          ctest --output-on-failure -V
-
-  build-macos:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Install Homebrew and dependencies
+      - name: Install macOS dependencies
+        if: matrix.platform == 'macos'
         run: |
           if ! command -v brew &>/dev/null; then
             /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
@@ -38,9 +75,40 @@ jobs:
             eval "$(/opt/homebrew/bin/brew shellenv)"
           fi
           brew update
-          brew install cmake boost googletest
+          brew install cmake boost googletest ccache
 
-      - name: Build and test
+      - name: Install Windows dependencies
+        if: matrix.platform == 'windows'
+        shell: powershell
+        run: |
+          $env:VCPKG_ROOT = "$env:GITHUB_WORKSPACE\vcpkg"
+          if (-Not (Test-Path $env:VCPKG_ROOT)) {
+            git clone https://github.com/microsoft/vcpkg.git $env:VCPKG_ROOT
+            & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat"
+          }
+          & "$env:VCPKG_ROOT\vcpkg.exe" install boost-system boost-beast cppwinrt gtest
+
+      # Cache ccache for all platforms
+      - name: Cache ccache
+        uses: actions/cache@v3
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-ccache-${{ hashFiles('native-hooks/CMakeLists.txt', 'native-hooks/src/**/*.cpp', 'native-hooks/src/**/*.h') }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-
+
+      # Cache CMake build for all platforms
+      - name: Cache CMake build
+        uses: actions/cache@v3
+        with:
+          path: native-hooks/build
+          key: ${{ runner.os }}-cmake-${{ hashFiles('native-hooks/CMakeLists.txt', 'native-hooks/src/**/*.cpp', 'native-hooks/src/**/*.h') }}
+          restore-keys: |
+            ${{ runner.os }}-cmake-
+
+      # Build and test
+      - name: Build and test (Linux/macOS)
+        if: matrix.platform != 'windows'
         run: |
           cd native-hooks
           mkdir -p build && cd build
@@ -48,27 +116,11 @@ jobs:
           cmake --build . --parallel
           ctest --output-on-failure -V
 
-  build-windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Install vcpkg
+      - name: Build and test (Windows)
+        if: matrix.platform == 'windows'
         shell: powershell
         run: |
-          if (-Not (Test-Path $env:VCPKG_ROOT)) {
-            git clone https://github.com/microsoft/vcpkg.git $env:VCPKG_ROOT
-            & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat"
-          }
-
-      - name: Install dependencies via vcpkg
-        shell: powershell
-        run: |
-          & "$env:VCPKG_ROOT\vcpkg.exe" install boost-system boost-beast cppwinrt gtest
-
-      - name: Build and test
-        shell: powershell
-        run: |
+          $env:VCPKG_ROOT = "$env:GITHUB_WORKSPACE\vcpkg"
           cd native-hooks
           mkdir build && cd build
           cmake .. -DBUILD_TESTS=ON -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake" -DCMAKE_BUILD_TYPE=Release
