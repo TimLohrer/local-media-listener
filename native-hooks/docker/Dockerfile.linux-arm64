@@ -35,12 +35,20 @@ RUN apt-get update && apt-get install -y \
     libc6-dev:arm64 \
     && rm -rf /var/lib/apt/lists/*
 
-# install development libraries for arm64
+# install development libraries for arm64 including Google Test
 RUN apt-get update && apt-get install -y \
+    gcc-aarch64-linux-gnu \
+    g++-aarch64-linux-gnu \
+    libc6-dev:arm64 \
     libdbus-1-dev:arm64 \
     libboost-system-dev:arm64 \
+    libgtest-dev:arm64 \
     && rm -rf /var/lib/apt/lists/*
-
+# Build and install Google Test
+RUN cd /usr/src/gtest \
+    && cmake CMakeLists.txt \
+    && make \
+    && cp *.a /usr/lib
 # set java home
 ENV JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
 

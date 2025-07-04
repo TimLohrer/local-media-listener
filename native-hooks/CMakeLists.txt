@@ -159,4 +159,18 @@ elseif(APPLE)
 elseif(UNIX)
     target_compile_definitions(native_hook PRIVATE PLATFORM_LINUX)
     target_compile_options(native_hook PRIVATE -Wall -Wextra)
+endif()
+
+# Unit tests
+option(BUILD_TESTS "Build unit tests" ON)
+if(BUILD_TESTS)
+    enable_testing()
+    find_package(GTest REQUIRED)
+    include(GoogleTest)
+    file(GLOB TEST_SOURCES "src/tests/*.cpp")
+    add_executable(unit_tests ${TEST_SOURCES})
+    # Link against native_hook and GTest main (provides main())
+    target_link_libraries(unit_tests PRIVATE native_hook GTest::gtest_main pthread)
+    # Discover and register each GTest case as a separate CTest test
+    gtest_discover_tests(unit_tests)
 endif() 
