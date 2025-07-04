@@ -122,7 +122,8 @@ jobs:
         run: |
           $env:VCPKG_ROOT = "$env:GITHUB_WORKSPACE\vcpkg"
           cd native-hooks
-          mkdir build && cd build
+          mkdir build
+          cd build
           cmake .. -DBUILD_TESTS=ON -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake" -DCMAKE_BUILD_TYPE=Release
           cmake --build . --parallel
           ctest --output-on-failure -V 
