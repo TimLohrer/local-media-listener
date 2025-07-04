@@ -76,6 +76,10 @@ jobs:
           fi
           brew update
           brew install cmake boost googletest ccache
+          brew link cmake --force --overwrite
+          brew link boost --force --overwrite
+          brew link googletest --force --overwrite
+          brew link ccache --force --overwrite
 
       - name: Install Windows dependencies
         if: matrix.platform == 'windows'
