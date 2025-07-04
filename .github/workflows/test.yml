@@ -76,9 +76,13 @@ jobs:
           fi
           brew update
           brew install cmake boost googletest ccache
+          brew unlink cmake || true
           brew link cmake --force --overwrite
+          brew unlink boost || true
           brew link boost --force --overwrite
+          brew unlink googletest || true
           brew link googletest --force --overwrite
+          brew unlink ccache || true
           brew link ccache --force --overwrite
 
       - name: Install Windows dependencies
