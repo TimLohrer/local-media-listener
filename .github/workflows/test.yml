@@ -75,7 +75,7 @@ jobs:
             eval "$(/opt/homebrew/bin/brew shellenv)"
           fi
           brew update
-          brew install cmake boost googletest ccache blake3 fmt
+          brew install cmake boost googletest ccache blake3 fmt xxhash zstd
           brew unlink cmake || true
           brew link cmake --force --overwrite
           brew unlink boost || true
@@ -88,6 +88,10 @@ jobs:
           brew link blake3 --force --overwrite
           brew unlink fmt || true
           brew link fmt --force --overwrite
+          brew unlink xxhash || true
+          brew link xxhash --force --overwrite
+          brew unlink zstd || true
+          brew link zstd --force --overwrite
 
       - name: Install Windows dependencies
         if: matrix.platform == 'windows'
