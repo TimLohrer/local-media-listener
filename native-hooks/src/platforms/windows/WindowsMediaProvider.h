@@ -6,6 +6,7 @@
 #include <winrt/Windows.Media.Control.h>
 #include <optional>
 #include <chrono>
+#include <string>
 #endif
 
 // Forward declarations for Windows Runtime types
@@ -25,13 +26,15 @@ public:
     bool previous(const std::string& appName = "") override;
     
 private:
+    bool initialized_{false};
 #if defined(_WIN32)
     winrt::Windows::Media::Control::GlobalSystemMediaTransportControlsSessionManager sessionManager_{nullptr};
-    bool initialized_{false};
     // Last fetched timeline properties and timestamp for interpolation
     std::optional<winrt::Windows::Media::Control::GlobalSystemMediaTransportControlsSessionTimelineProperties> lastTimelineProps_;
     std::chrono::steady_clock::time_point lastTimelineFetchTime_;
     winrt::Windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus lastPlaybackStatus_{};
+    // Cached thumbnail image URL (base64 data URI)
+    std::string lastImageUrl_;
 #endif
     
     bool initializeWindowsRT();
