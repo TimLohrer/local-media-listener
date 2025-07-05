@@ -4,7 +4,6 @@ FROM ubuntu:22.04
 # no interaction
 ENV DEBIAN_FRONTEND=noninteractive
 
-# install base deps
 RUN apt-get update && apt-get install -y \
     build-essential \
     cmake \
@@ -17,20 +16,12 @@ RUN apt-get update && apt-get install -y \
     openjdk-11-jdk \
     gcc-x86-64-linux-gnu \
     g++-x86-64-linux-gnu \
-    && rm -rf /var/lib/apt/lists/*
-
-# install development libraries for amd64 including Google Test
-RUN apt-get update && apt-get install -y \
     libdbus-1-dev \
     libboost-system-dev \
     libdbus-1-3 \
     libgtest-dev \
+    googletest \
     && rm -rf /var/lib/apt/lists/*
-# Build and install Google Test
-RUN cd /usr/src/gtest \
-    && cmake CMakeLists.txt \
-    && make \
-    && cp *.a /usr/lib
 
 # set java home
 ENV JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64

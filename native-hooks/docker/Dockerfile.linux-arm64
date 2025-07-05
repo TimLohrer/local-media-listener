@@ -4,18 +4,15 @@ FROM ubuntu:22.04
 # no interaction
 ENV DEBIAN_FRONTEND=noninteractive
 
-# enable arm64 architecture
-RUN dpkg --add-architecture arm64
-
-# configure package sources for arm64
-RUN echo "deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ jammy main restricted universe multiverse" > /etc/apt/sources.list && \
+# enable arm64 architecture and configure package sources
+RUN dpkg --add-architecture arm64 && \
+    echo "deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ jammy main restricted universe multiverse" > /etc/apt/sources.list && \
     echo "deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ jammy-updates main restricted universe multiverse" >> /etc/apt/sources.list && \
     echo "deb [arch=amd64] http://security.ubuntu.com/ubuntu/ jammy-security main restricted universe multiverse" >> /etc/apt/sources.list && \
     echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy main restricted universe multiverse" >> /etc/apt/sources.list && \
     echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy-updates main restricted universe multiverse" >> /etc/apt/sources.list && \
     echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy-security main restricted universe multiverse" >> /etc/apt/sources.list
 
-# install base deps (amd64 host tools)
 RUN apt-get update && apt-get install -y \
     build-essential \
     cmake \
@@ -26,29 +23,15 @@ RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
     openjdk-11-jdk \
-    && rm -rf /var/lib/apt/lists/*
-
-# install arm64 cross-compilation toolchain
-RUN apt-get update && apt-get install -y \
-    gcc-aarch64-linux-gnu \
-    g++-aarch64-linux-gnu \
-    libc6-dev:arm64 \
-    && rm -rf /var/lib/apt/lists/*
-
-# install development libraries for arm64 including Google Test
-RUN apt-get update && apt-get install -y \
     gcc-aarch64-linux-gnu \
     g++-aarch64-linux-gnu \
     libc6-dev:arm64 \
     libdbus-1-dev:arm64 \
     libboost-system-dev:arm64 \
     libgtest-dev:arm64 \
+    googletest \
     && rm -rf /var/lib/apt/lists/*
-# Build and install Google Test
-RUN cd /usr/src/gtest \
-    && cmake CMakeLists.txt \
-    && make \
-    && cp *.a /usr/lib
+    
 # set java home
 ENV JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
 
