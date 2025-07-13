@@ -1,6 +1,6 @@
 #include "HttpServer.h"
+#include "Logger.h"
 #include <httplib.h>
-#include <iostream>
 #include <algorithm>
 #include <nlohmann/json.hpp> // For MediaInfo::toJson()
 
@@ -40,13 +40,13 @@ void WebSocketSession::close() {
     beast::error_code ec;
     ws_.close(websocket::close_code::normal, ec);
     if (ec) {
-        std::cerr << "WebSocket close error: " << ec.message() << std::endl;
+        Logger::error("WebSocket close error: " + std::string(ec.message()));
     }
 }
 
 void WebSocketSession::onAccept(beast::error_code ec) {
     if (ec) {
-        std::cerr << "WebSocket accept error: " << ec.message() << std::endl;
+        Logger::error("WebSocket accept error: " + std::string(ec.message()));
         return;
     }
 
@@ -73,7 +73,7 @@ void WebSocketSession::onRead(beast::error_code ec, std::size_t bytes_transferre
     }
 
     if (ec) {
-        std::cerr << "WebSocket read error: " << ec.message() << std::endl;
+        Logger::error("WebSocket read error: " + std::string(ec.message()));
         if (onClose_) {
             onClose_(shared_from_this());
         }
@@ -81,7 +81,7 @@ void WebSocketSession::onRead(beast::error_code ec, std::size_t bytes_transferre
     }
 
     // Echo the message (we don't expect messages from clients in this application)
-    std::cout << "Received WebSocket message: " << beast::make_printable(buffer_.data()) << std::endl;
+    Logger::info("Received WebSocket message");
     
     // Clear the buffer
     buffer_.consume(buffer_.size());
@@ -98,7 +98,7 @@ void WebSocketSession::onWrite(beast::error_code ec, std::size_t bytes_transferr
         if (ec == net::error::operation_aborted) {
             return;
         }
-        std::cerr << "WebSocket write error: " << ec.message() << std::endl;
+        Logger::error("WebSocket write error: " + std::string(ec.message()));
         // Do not invoke onClose_ here to keep session alive
         return;
     }
@@ -116,63 +116,87 @@ HttpServer::~HttpServer() {
 }
 
 bool HttpServer::start(const std::string& host, int port) {
+    Logger::info("starting server");
     if (running_.load()) {
+        Logger::debug("already running");
         return true; // Already running
     }
-    
+    Logger::debug("not running");
     running_.store(true);
 
     // Start httplib server in a separate thread
+    Logger::debug("starting httplib server");
     serverThread_ = std::thread(&HttpServer::runServer, this, host, port);
+    Logger::debug("httplib server started");
 
     // Start Beast WebSocket server in a separate thread
+    Logger::debug("starting beast server");
     wsThread_ = std::thread(&HttpServer::runWebSocketServer, this, host, port + 1);
-    
+    Logger::debug("beast server started");
+
     // Give the servers a moment to start
+    Logger::debug("waiting for servers to start");
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    
+    Logger::debug("thread woke up");
+    Logger::info("server started");
     return true;
 }
 
 void HttpServer::stop() {
     if (!running_.load()) {
+        Logger::debug("not running");
         return;
     }
-    
+    Logger::debug("stopping server");
     running_.store(false);
     
     // Stop httplib server
     if (httpServer_) {
+        Logger::debug("stopping httplib server");
         httpServer_->stop();
+        Logger::debug("httplib server stopped");
     }
 
     // Stop Beast WebSocket server
+    Logger::debug("stopping beast server");
     wsIoc_.stop();
+    Logger::debug("beast server stopped");
     
     // Close the WebSocket acceptor to stop accepting new connections
     beast::error_code ec;
+    Logger::debug("closing beast acceptor");
     wsAcceptor_.close(ec);
+    Logger::debug("beast acceptor closed");
     if (ec) {
-        std::cerr << "Error closing WebSocket acceptor: " << ec.message() << std::endl;
+        Logger::error("Error closing WebSocket acceptor: " + std::string(ec.message()));
     }
 
     // Close all active WebSocket sessions first
     {
         std::lock_guard<std::mutex> lock(wsConnectionsMutex_);
         for (auto& session : wsConnections_) {
+            Logger::debug("closing websocket session");
             session->close();
+            Logger::debug("websocket session closed");
         }
+        Logger::debug("clearing websocket connections");
         wsConnections_.clear();
+        Logger::debug("websocket connections cleared");
     }
 
     // Wait for threads to complete
     if (serverThread_.joinable()) {
+        Logger::debug("joining httplib server thread");
         serverThread_.join();
+        Logger::debug("httplib server thread joined");
     }
     
     if (wsThread_.joinable()) {
+        Logger::debug("joining beast server thread");
         wsThread_.join();
+        Logger::debug("beast server thread joined");
     }
+    Logger::info("server stopped");
 }
 
 void HttpServer::setCurrentMediaInfo(const MediaInfo& info) {
@@ -203,18 +227,19 @@ void HttpServer::notifyWebSocketClients(const MediaInfo& info) {
 }
 
 void HttpServer::runServer(const std::string& host, int port) {
+    Logger::debug("runServer");
     // CORS headers for httplib server
     httpServer_->set_default_headers({
         {"Access-Control-Allow-Origin", "*"},
         {"Access-Control-Allow-Methods", "GET, POST, OPTIONS"},
         {"Access-Control-Allow-Headers", "Content-Type, Authorization"}
     });
-    
+    Logger::debug("httplib server set default headers");
     // Ready endpoint
     httpServer_->Get("/ready", [](const httplib::Request&, httplib::Response& res) {
         res.status = 200;
     });
-    
+    Logger::debug("httplib server ready endpoint");
     // Current media info endpoint
     httpServer_->Get("/now-playing", [this](const httplib::Request&, httplib::Response& res) {
         std::lock_guard<std::mutex> lock(currentInfoMutex_);
@@ -224,7 +249,7 @@ void HttpServer::runServer(const std::string& host, int port) {
             res.set_content(currentInfo_.toJson().dump(), "application/json");
         }
     });
-    
+    Logger::debug("httplib server now-playing endpoint");
     // Media control endpoints
     httpServer_->Post("/control/play-pause", [this](const httplib::Request& req, httplib::Response& res) {
         std::string appName = req.body;
@@ -235,7 +260,7 @@ void HttpServer::runServer(const std::string& host, int port) {
             res.set_content("Failed to toggle play/pause", "text/plain");
         }
     });
-    
+    Logger::debug("httplib server play-pause endpoint");
     httpServer_->Post("/control/next", [this](const httplib::Request& req, httplib::Response& res) {
         std::string appName = req.body;
         if (mediaProvider_->next(appName)) {
@@ -245,7 +270,7 @@ void HttpServer::runServer(const std::string& host, int port) {
             res.set_content("Failed to skip to next track", "text/plain");
         }
     });
-    
+    Logger::debug("httplib server next endpoint");
     httpServer_->Post("/control/back", [this](const httplib::Request& req, httplib::Response& res) {
         std::string appName = req.body;
         if (mediaProvider_->previous(appName)) {
@@ -255,13 +280,15 @@ void HttpServer::runServer(const std::string& host, int port) {
             res.set_content("Failed to skip to previous track", "text/plain");
         }
     });
-    
-    std::cout << "OS Media daemon listening on http://" << host << ":" << port << std::endl;
-    
+    Logger::debug("httplib server back endpoint");
+    Logger::info("OS Media daemon listening on http://" + host + ":" + std::to_string(port));
+    Logger::debug("httplib server listening");
     httpServer_->listen(host.c_str(), port);
+    Logger::debug("httplib server listening");
 }
 
 void HttpServer::runWebSocketServer(const std::string& host, int port) {
+    Logger::debug("runWebSocketServer");
     try {
         auto const address = net::ip::make_address(host);
         auto const portNum = static_cast<unsigned short>(port);
@@ -270,17 +297,19 @@ void HttpServer::runWebSocketServer(const std::string& host, int port) {
         wsAcceptor_.open(tcp::v4());
         wsAcceptor_.set_option(net::socket_base::reuse_address(true));
         wsAcceptor_.bind({address, portNum});
+        Logger::debug("beast server bound");
         wsAcceptor_.listen(net::socket_base::max_listen_connections);
-
-        std::cout << "WebSocket server listening on ws://" << host << ":" << port << std::endl;
-
+        Logger::debug("beast server opened");
+        Logger::info("WebSocket server listening on ws://" + host + ":" + std::to_string(port));
+        Logger::debug("beast server listening");
         // Start accepting connections
         doAccept();
-
+        Logger::debug("beast server accepting connections");
         // Run the I/O service
         wsIoc_.run();
+        Logger::debug("beast server running");
     } catch (std::exception const& e) {
-        std::cerr << "WebSocket server error: " << e.what() << std::endl;
+        Logger::error("WebSocket server error: " + std::string(e.what()));
     }
 }
 
@@ -293,43 +322,45 @@ void HttpServer::doAccept() {
 
 void HttpServer::onAccept(beast::error_code ec, tcp::socket socket) {
     if (ec) {
-        std::cerr << "WebSocket accept error: " << ec.message() << std::endl;
+        Logger::error("WebSocket accept error: " + std::string(ec.message()));
     } else {
         // Create the session and run it
         auto session = std::make_shared<WebSocketSession>(std::move(socket));
-        
+        Logger::debug("beast server session created");
         // Set up the close callback
         session->onClose_ = [this](std::shared_ptr<WebSocketSession> session) {
             removeWebSocketSession(session);
         };
-        
+        Logger::debug("beast server session close callback set");
         // Add to our connection set
         {
             std::lock_guard<std::mutex> lock(wsConnectionsMutex_);
             wsConnections_.insert(session);
         }
-        
+        Logger::debug("beast server session added to connections");
         // Send current media info to new client
         {
             std::lock_guard<std::mutex> infoLock(currentInfoMutex_);
             if (!currentInfo_.isEmpty()) {
                 session->send(currentInfo_.toJson().dump());
+                Logger::debug("beast server session sent current media info");
             }
         }
-        
+        Logger::debug("beast server session added to connections");
         session->run();
-        
-        std::cout << "WebSocket connection established." << std::endl;
+        Logger::debug("beast server session run");
+        Logger::info("WebSocket connection established.");
     }
 
     // Accept another connection
     if (running_.load()) {
         doAccept();
+        Logger::debug("beast server accepting another connection");
     }
 }
 
 void HttpServer::removeWebSocketSession(std::shared_ptr<WebSocketSession> session) {
     std::lock_guard<std::mutex> lock(wsConnectionsMutex_);
     wsConnections_.erase(session);
-    std::cout << "WebSocket connection closed." << std::endl;
+    Logger::info("WebSocket connection closed.");
 } 

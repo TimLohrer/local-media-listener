@@ -1,5 +1,5 @@
 #include "LocalMediaListener.h"
-#include <iostream>
+#include "Logger.h"
 #include <chrono>
 #include <thread>
 
@@ -17,51 +17,62 @@ bool LocalMediaListener::initialize() {
         return true; // Already initialized
     }
     
-    std::cout << "Initializing LocalMediaListener..." << std::endl;
+    Logger::info("Initializing LocalMediaListener...");
     
     // Create media provider
     mediaProvider_ = IMediaProvider::create();
     if (!mediaProvider_) {
-        std::cerr << "Failed to create media provider for this platform" << std::endl;
+        Logger::error("Failed to create media provider for this platform");
         return false;
     }
     
+    Logger::debug("Creating HTTP server");
     // Create HTTP server
     httpServer_ = std::make_unique<HttpServer>(static_cast<std::shared_ptr<IMediaProvider>>(mediaProvider_));
+    Logger::debug("pointer created");
     if (!httpServer_->start("127.0.0.1", 14565)) {
-        std::cerr << "Failed to start HTTP server" << std::endl;
+        Logger::error("Failed to start HTTP server");
         return false;
     }
+    Logger::debug("server up");
     
     // Start polling
     startPolling();
+    Logger::debug("polling started");
     
     running_.store(true);
-    std::cout << "LocalMediaListener initialized successfully" << std::endl;
+    Logger::info("LocalMediaListener initialized successfully");
     return true;
 }
 
 void LocalMediaListener::shutdown() {
     if (!running_.load()) {
+        Logger::debug("not running");
         return;
     }
     
-    std::cout << "Shutting down LocalMediaListener..." << std::endl;
+    Logger::info("Shutting down LocalMediaListener...");
     
     // Stop polling
+    Logger::debug("stopping polling");
     stopPolling();
+    Logger::debug("polling stopped");
     
     // Stop HTTP server
     if (httpServer_) {
+        Logger::debug("stopping server");
         httpServer_->stop();
         httpServer_.reset();
+        Logger::debug("server stopped");
     }
     
     // Clean up media provider
+    Logger::debug("cleaning up media provider");
     mediaProvider_.reset();
+    Logger::debug("media provider cleaned up");
     
     running_.store(false);
-    std::cout << "LocalMediaListener shut down successfully" << std::endl;
+    Logger::info("LocalMediaListener shut down successfully");
 }
 
 MediaInfo LocalMediaListener::getCurrentMediaInfo() const {
@@ -103,13 +114,17 @@ bool LocalMediaListener::isRunning() const {
 void LocalMediaListener::startPolling() {
     shouldStop_.store(false);
     pollingThread_ = std::thread(&LocalMediaListener::pollLoop, this);
+    Logger::debug("polling thread started");
 }
 
 void LocalMediaListener::stopPolling() {
     shouldStop_.store(true);
     if (pollingThread_.joinable()) {
+        Logger::debug("joining polling thread");
         pollingThread_.join();
+        Logger::debug("polling thread joined");
     }
+    Logger::debug("polling thread stopped");
 }
 
 void LocalMediaListener::pollLoop() {

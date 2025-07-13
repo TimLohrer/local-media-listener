@@ -1,6 +1,7 @@
 package dev.timlohrer.lml.networking
 
 import dev.timlohrer.lml.LocalMediaListener
+import dev.timlohrer.lml.Logger
 import dev.timlohrer.lml.data.MediaInfo
 import dev.timlohrer.lml.data.TransportMediaInfo
 import kotlinx.serialization.json.Json
@@ -37,7 +38,7 @@ internal object NativeHookClient {
     
     fun getCurrentMediaInfo(): MediaInfo {
         if (!LocalMediaListener.isRunning) {
-            println("LocalMediaListener is not running. Please initialize it before fetching any data!")
+            Logger.warn("LocalMediaListener is not running. Please initialize it before fetching any data!")
             return MediaInfo.stopped()
         }
         
@@ -49,14 +50,14 @@ internal object NativeHookClient {
         return try {
             val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
             if (response.statusCode() != 200) {
-                println("Failed to fetch current media info: ${response.statusCode()}")
+                Logger.error("Failed to fetch current media info: ${response.statusCode()}")
                 return MediaInfo.stopped()
             }
             val mediaInfo = Json.decodeFromString<TransportMediaInfo>(response.body()).toMediaInfo()
             mediaInfo.isPlaying = true
             mediaInfo
         } catch (e: Exception) {
-            println("Error parsing media info: ${e.message}")
+            Logger.error("Error parsing media info: ${e.message}")
             MediaInfo.error("Error parsing media info: ${e.message}")
         }
     }
@@ -64,9 +65,9 @@ internal object NativeHookClient {
     fun subscribeToMediaChanges(onUpdate: (MediaInfo) -> Unit): Closeable {
         if (!LocalMediaListener.isRunning) {
             val errorMessage = "LocalMediaListener is not running. Please initialize it before subscribing!"
-            println(errorMessage)
+            Logger.warn(errorMessage)
             onUpdate(MediaInfo.error(errorMessage))
-            return Closeable { println("No-op closeable: LocalMediaListener not running.") }
+            return Closeable { Logger.debug("No-op closeable: LocalMediaListener not running.") }
         }
 
         val request = Request.Builder()
@@ -77,7 +78,7 @@ internal object NativeHookClient {
 
         val webSocketListener = object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                println("WebSocket connection opened: ${response.message}")
+                Logger.info("WebSocket connection opened: ${response.message}")
                 currentWebSocket = webSocket
             }
 
@@ -91,28 +92,28 @@ internal object NativeHookClient {
                         onUpdate(mediaInfo)
                     }
                 } catch (e: Exception) {
-                    println("Error parsing WebSocket message: $e, message: $text")
+                    Logger.error("Error parsing WebSocket message: $e, message: $text")
                     onUpdate(MediaInfo.error("Failed to parse media info: ${e.message}"))
                 }
             }
 
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-                println("Received binary message (unhandled): ${bytes.hex()}")
+                Logger.debug("Received binary message (unhandled): ${bytes.hex()}")
             }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-                println("WebSocket connection closing: code=$code, reason=$reason")
+                Logger.info("WebSocket connection closing: code=$code, reason=$reason")
                 webSocket.close(1000, null)
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                println("WebSocket connection closed: code=$code, reason=$reason")
+                Logger.info("WebSocket connection closed: code=$code, reason=$reason")
                 onUpdate(MediaInfo.stopped())
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 val responseMessage = response?.message ?: "No response"
-                println("WebSocket connection failure: ${t.message}, response: $responseMessage")
+                Logger.error("WebSocket connection failure: ${t.message}, response: $responseMessage")
                 onUpdate(MediaInfo.error("WebSocket connection failed: ${t.message}"))
             }
         }
@@ -121,14 +122,14 @@ internal object NativeHookClient {
         currentWebSocket = ws
         
         return Closeable {
-            println("Unsubscribing and closing WebSocket connection.")
+            Logger.info("Unsubscribing and closing WebSocket connection.")
             currentWebSocket.cancel()
         }
     }
     
     fun back(appName: String) {
         if (!LocalMediaListener.isRunning) {
-            println("LocalMediaListener is not running. No need to back.")
+            Logger.warn("LocalMediaListener is not running. No need to back.")
             return
         }
         
@@ -140,18 +141,18 @@ internal object NativeHookClient {
         try {
             val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
             if (response.statusCode() != 200) {
-                println("Failed to go back: ${response.statusCode()}")
+                Logger.error("Failed to go back: ${response.statusCode()}")
                 return
             }
         } catch (e: Exception) {
-            println("Error going back: ${e.message}")
+            Logger.error("Error going back: ${e.message}")
             return
         }
     }
     
     fun next(appName: String) {
         if (!LocalMediaListener.isRunning) {
-            println("LocalMediaListener is not running. No need to next.")
+            Logger.warn("LocalMediaListener is not running. No need to next.")
             return
         }
         
@@ -163,18 +164,18 @@ internal object NativeHookClient {
         try {
             val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
             if (response.statusCode() != 200) {
-                println("Failed to go next: ${response.statusCode()}")
+                Logger.error("Failed to go next: ${response.statusCode()}")
                 return
             }
         } catch (e: Exception) {
-            println("Error going next: ${e.message}")
+            Logger.error("Error going next: ${e.message}")
             return
         }
     }
     
 fun playPause(appName: String) {
         if (!LocalMediaListener.isRunning) {
-            println("LocalMediaListener is not running. No need to play/pause.")
+            Logger.warn("LocalMediaListener is not running. No need to play/pause.")
             return
         }
         
@@ -186,11 +187,11 @@ fun playPause(appName: String) {
         try {
             val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
             if (response.statusCode() != 200) {
-                println("Failed to toggle play/pause: ${response.statusCode()}")
+                Logger.error("Failed to toggle play/pause: ${response.statusCode()}")
                 return
             }
         } catch (e: Exception) {
-            println("Error toggling play/pause: ${e.message}")
+            Logger.error("Error toggling play/pause: ${e.message}")
             return
         }
     }

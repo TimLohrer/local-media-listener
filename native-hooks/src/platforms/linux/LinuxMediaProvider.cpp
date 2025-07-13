@@ -1,5 +1,5 @@
 #include "LinuxMediaProvider.h"
-#include <iostream>
+#include "Logger.h"
 #include <string>
 #include <vector>
 #include <cstring>
@@ -18,13 +18,13 @@ bool LinuxMediaProvider::initializeDBus() {
     
     dbusConnection_ = dbus_bus_get(DBUS_BUS_SESSION, &error);
     if (dbus_error_is_set(&error)) {
-        std::cerr << "Failed to connect to session bus: " << error.message << std::endl;
+        Logger::error("Failed to connect to session bus: " + std::string(error.message));
         dbus_error_free(&error);
         return false;
     }
     
     if (!dbusConnection_) {
-        std::cerr << "Failed to get D-Bus connection" << std::endl;
+        Logger::error("Failed to get D-Bus connection");
         return false;
     }
     

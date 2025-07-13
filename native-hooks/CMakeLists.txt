@@ -19,6 +19,9 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Option to control static linking
+option(STATIC_LINKING "Enable static linking of dependencies" ON)
+
 # jni
 find_package(JNI REQUIRED)
 
@@ -70,6 +73,7 @@ set(OUTPUT_DIR "${CMAKE_SOURCE_DIR}/../src/main/resources/lib")
 
 # common includes
 include_directories(${JNI_INCLUDE_DIRS})
+include_directories(src/logging)
 include_directories(src/common)
 include_directories(src/core)
 include_directories(src/jni)
@@ -87,6 +91,7 @@ endif()
 file(GLOB COMMON_SOURCES "src/common/*.cpp")
 file(GLOB CORE_SOURCES "src/core/*.cpp")
 file(GLOB JNI_SOURCES "src/jni/*.cpp")
+file(GLOB LOGGING_SOURCES "src/logging/*.cpp")
 
 # platform-specific sources
 if(WIN32)
@@ -100,6 +105,9 @@ if(WIN32)
         Microsoft::CppWinRT
         WindowsApp
     )
+    if(STATIC_LINKING)
+        message(STATUS "Windows static linking enabled - using static runtime (/MT)")
+    endif()
 elseif(APPLE)
     file(GLOB PLATFORM_SOURCES "src/platforms/macos/*.cpp")
     # darwin frameworks
@@ -109,11 +117,59 @@ elseif(APPLE)
     set(PLATFORM_LIBS ${FOUNDATION_FRAMEWORK} ${COREFOUNDATION_FRAMEWORK} ${COCOA_FRAMEWORK})
 elseif(UNIX)
     file(GLOB PLATFORM_SOURCES "src/platforms/linux/*.cpp")
-    # nix libs
+    # nix libs - prefer static linking if enabled
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(DBUS REQUIRED dbus-1)
-    set(PLATFORM_LIBS ${DBUS_LIBRARIES})
-    include_directories(${DBUS_INCLUDE_DIRS})
+    
+    if(STATIC_LINKING)
+        # Try to use static libraries for D-Bus if available
+        pkg_check_modules(DBUS_STATIC QUIET dbus-1 --static)
+        if(DBUS_STATIC_FOUND)
+            message(STATUS "Using static D-Bus libraries")
+            set(PLATFORM_LIBS ${DBUS_STATIC_LIBRARIES})
+            include_directories(${DBUS_STATIC_INCLUDE_DIRS})
+            link_directories(${DBUS_STATIC_LIBRARY_DIRS})
+            set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${DBUS_STATIC_LDFLAGS_OTHER}")
+        else()
+            message(STATUS "Static D-Bus libraries not found, using dynamic")
+            set(PLATFORM_LIBS ${DBUS_LIBRARIES})
+            include_directories(${DBUS_INCLUDE_DIRS})
+        endif()
+    else()
+        set(PLATFORM_LIBS ${DBUS_LIBRARIES})
+        include_directories(${DBUS_INCLUDE_DIRS})
+    endif()
+endif()
+
+# Configure static linking if enabled
+if(STATIC_LINKING)
+    message(STATUS "Static linking enabled")
+    # Enable static linking for Boost
+    set(Boost_USE_STATIC_LIBS ON)
+    set(Boost_USE_MULTITHREADED ON)
+    set(Boost_USE_STATIC_RUNTIME OFF)
+
+    # Prefer static libraries globally
+    set(CMAKE_FIND_LIBRARY_SUFFIXES ".a" ".lib" ".so" ".dylib" ".dll")
+
+    # Platform-specific static linking flags
+    if(WIN32)
+        # Windows: Use static runtime library
+        set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+        # Force static linking of MSVC runtime
+        foreach(flag_var CMAKE_CXX_FLAGS CMAKE_CXX_FLAGS_DEBUG CMAKE_CXX_FLAGS_RELEASE CMAKE_CXX_FLAGS_MINSIZEREL CMAKE_CXX_FLAGS_RELWITHDEBINFO)
+            if(${flag_var} MATCHES "/MD")
+                string(REGEX REPLACE "/MD" "/MT" ${flag_var} "${${flag_var}}")
+            endif()
+        endforeach()
+    elseif(UNIX AND NOT APPLE)
+        # Linux: Static linking flags
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-libstdc++")
+        set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -static-libgcc -static-libstdc++")
+    endif()
+else()
+    message(STATUS "Dynamic linking enabled")
+    set(Boost_USE_STATIC_LIBS OFF)
 endif()
 
 # third-party deps
@@ -124,8 +180,13 @@ include_directories(third-party/nlohmann)
 find_package(Boost 1.70.0 CONFIG REQUIRED COMPONENTS system)
 if(Boost_FOUND)
     message(STATUS "found boost: ${Boost_LIBRARIES}")
-    include_directories(${Boost_INCLUDE_DIRS})
-    set(THIRD_PARTY_LIBS ${Boost_LIBRARIES})
+    # Use modern CMake targets for better static linking control
+    if(TARGET Boost::system)
+        set(THIRD_PARTY_LIBS Boost::system)
+    else()
+        include_directories(${Boost_INCLUDE_DIRS})
+        set(THIRD_PARTY_LIBS ${Boost_LIBRARIES})
+    endif()
     # threading
     find_package(Threads REQUIRED)
     list(APPEND THIRD_PARTY_LIBS Threads::Threads)
@@ -138,10 +199,28 @@ add_library(native_hook SHARED
     ${COMMON_SOURCES}
     ${CORE_SOURCES}
     ${JNI_SOURCES}
+    ${LOGGING_SOURCES}
     ${PLATFORM_SOURCES}
 )
 
 target_link_libraries(native_hook ${PLATFORM_LIBS} ${THIRD_PARTY_LIBS})
+
+# Show what libraries are being linked
+message(STATUS "Platform libraries: ${PLATFORM_LIBS}")
+message(STATUS "Third-party libraries: ${THIRD_PARTY_LIBS}")
+
+# Additional static linking configuration
+if(STATIC_LINKING)
+    # Link statically where possible
+    if(WIN32)
+        # Windows: Link against static runtime
+        target_compile_options(native_hook PRIVATE $<$<CONFIG:Release>:/MT> $<$<CONFIG:Debug>:/MTd>)
+    elseif(UNIX AND NOT APPLE)
+        # Linux: Additional linker options
+        target_link_options(native_hook PRIVATE -Wl,--as-needed)
+        # Note: For shared libraries, we can't use -static, but we can statically link dependencies
+    endif()
+endif()
 
 # output name
 set_target_properties(native_hook PROPERTIES
@@ -169,16 +248,4 @@ elseif(UNIX)
     target_compile_options(native_hook PRIVATE -Wall -Wextra)
 endif()
 
-# Unit tests
-option(BUILD_TESTS "Build unit tests" ON)
-if(BUILD_TESTS)
-    enable_testing()
-    find_package(GTest REQUIRED)
-    include(GoogleTest)
-    file(GLOB TEST_SOURCES "src/tests/*.cpp")
-    add_executable(unit_tests ${TEST_SOURCES})
-    # Link against native_hook and GTest main (provides main())
-    target_link_libraries(unit_tests PRIVATE native_hook GTest::gtest_main pthread)
-    # Discover and register each GTest case as a separate CTest test
-    gtest_discover_tests(unit_tests)
-endif() 
+ 

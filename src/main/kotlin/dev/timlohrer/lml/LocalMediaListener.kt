@@ -22,14 +22,14 @@ object LocalMediaListener {
     fun main(args: Array<String>) {
         // Add shutdown hook for graceful cleanup
         Runtime.getRuntime().addShutdownHook(Thread {
-            println("\nReceived shutdown signal, cleaning up...")
+            Logger.info("Received shutdown signal, cleaning up...")
             shouldExit.set(true)
             closeHook()
         })
         
         initialize { 
             onMediaChange { 
-                println(it.toString())
+                Logger.info("Media change: ${it.toString()}")
             }
         }
         
@@ -39,31 +39,44 @@ object LocalMediaListener {
                 Thread.sleep(1000)
             }
         } catch (e: InterruptedException) {
-            println("Main thread interrupted, shutting down...")
+            Logger.info("Main thread interrupted, shutting down...")
             Thread.currentThread().interrupt()
         } finally {
             closeHook()
         }
         
-        println("LocalMediaListener main loop exited.")
+        Logger.info("LocalMediaListener main loop exited.")
     }
     
     @Suppress("UNUSED")
     fun initialize(afterInitialized: (() -> Unit)? = null) {
         if (isRunning) {
-            println("LocalMediaListener is already running.")
+            Logger.info("LocalMediaListener is already running.")
             return
         }
         
-        println("Initializing LocalMediaListener...")
+        Logger.info("Initializing LocalMediaListener...")
 
         lastStartupShutdownTime = System.currentTimeMillis()
         CoroutineScope(Dispatchers.IO).launch {
             CoroutineScope(Dispatchers.IO).launch {
                 try {
+                    // Check if native library is available before attempting to load
+                    if (!NativeLoader.isNativeLibraryAvailable("native_hook")) {
+                        Logger.error("Native library not available for current platform/architecture")
+                        Logger.error("Platform: ${System.getProperty("os.name")}, Architecture: ${System.getProperty("os.arch")}")
+                        return@launch
+                    }
+                    
+                    Logger.debug("Native library is available, attempting to initialize NativeBridge...")
                     native = NativeBridge()
                 } catch (e: Exception) {
-                    println("Failed to initialize NativeBridge: ${e.message}")
+                    Logger.error("Failed to initialize NativeBridge: ${e.message}")
+                    Logger.error("Exception type: ${e.javaClass.simpleName}")
+                    if (e is UnsatisfiedLinkError) {
+                        Logger.error("This indicates the native library couldn't be loaded")
+                        Logger.error("Check if the library was built for the correct platform/architecture")
+                    }
                     return@launch
                 }
             }
@@ -72,7 +85,7 @@ object LocalMediaListener {
             delay(3000)
             isRunning = true
             
-            println("LocalMediaListener initialized successfully.")
+            Logger.info("LocalMediaListener initialized successfully.")
     
             afterInitialized?.invoke()
         }
@@ -113,24 +126,24 @@ object LocalMediaListener {
     fun closeHook() {
         synchronized(this) {
             if (!isRunning || native == null) {
-                println("LocalMediaListener is not running. No need to exit.")
+                Logger.info("LocalMediaListener is not running. No need to exit.")
                 return
             }
 
-            println("Shutting down LocalMediaListener...")
+            Logger.info("Shutting down LocalMediaListener...")
             lastStartupShutdownTime = System.currentTimeMillis()
             
             try {
                 native!!.shutdownNativeHook()
             } catch (e: Exception) {
-                println("Error during native shutdown: ${e.message}")
+                Logger.error("Error during native shutdown: ${e.message}")
             } finally {
                 native = null
                 isRunning = false
                 System.gc()
             }
             
-            println("LocalMediaListener shutdown complete.")
+            Logger.info("LocalMediaListener shutdown complete.")
         }
     }
 }
