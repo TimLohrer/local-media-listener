@@ -9,7 +9,6 @@ group = "dev.timlohrer"
 version = "1.0.0"
 
 repositories {
-    mavenLocal()
     mavenCentral()
 }
 
