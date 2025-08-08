@@ -6,10 +6,9 @@ plugins {
 }
 
 group = "dev.timlohrer"
-version = "1.0.0"
+version = "1.0.1-SNAPSHOT"
 
 repositories {
-    mavenLocal()
     mavenCentral()
 }
 
@@ -32,10 +31,10 @@ tasks.jar {
     }
 }
 
-tasks.shadowJar {
-    archiveClassifier.set("")
-    mergeServiceFiles()
-}
+//tasks.shadowJar {
+//    archiveClassifier.set("")
+//    mergeServiceFiles()
+//}
 
 publishing {
     publications {
@@ -49,5 +48,13 @@ publishing {
     }
     repositories {
         mavenLocal()
+        maven {
+            name = "timlohrer-snapshots"
+            url = uri("https://reposilite.timlohrer.dev/snapshots")
+            credentials {
+                username = System.getenv("REPOSILITE_USERNAME")
+                password = System.getenv("REPOSILITE_PASSWORD")
+            }
+        }
     }
 }
