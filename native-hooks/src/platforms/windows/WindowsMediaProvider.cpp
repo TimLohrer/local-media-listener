@@ -10,43 +10,136 @@
 #include <codecvt>
 #include <optional>
 #include <chrono>
+#include "Logger.h"
 
-// Helper to convert winrt::hstring to UTF-8 std::string
+// Helper to convert winrt::hstring to UTF-8 std::string with validation
 #if defined(_WIN32)
 static std::string toUtf8(const winrt::hstring& hs) {
-    std::wstring ws(hs.c_str());
-    std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
-    return conv.to_bytes(ws);
+    try {
+        std::wstring ws(hs.c_str());
+        std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
+        std::string result = conv.to_bytes(ws);
+        
+        // Validate UTF-8 and remove invalid characters
+        std::string clean_result;
+        clean_result.reserve(result.length());
+        
+        for (size_t i = 0; i < result.length(); ) {
+            unsigned char c = static_cast<unsigned char>(result[i]);
+            
+            // ASCII characters (0-127) are always valid
+            if (c < 128) {
+                clean_result += result[i];
+                i++;
+                continue;
+            }
+            
+            // Multi-byte UTF-8 character validation
+            int bytes_to_read = 0;
+            if ((c & 0xE0) == 0xC0) bytes_to_read = 1;       // 110xxxxx
+            else if ((c & 0xF0) == 0xE0) bytes_to_read = 2;  // 1110xxxx
+            else if ((c & 0xF8) == 0xF0) bytes_to_read = 3;  // 11110xxx
+            else {
+                // Invalid start byte, skip
+                i++;
+                continue;
+            }
+            
+            // Check if we have enough bytes and they're valid continuation bytes
+            bool valid = true;
+            if (i + bytes_to_read >= result.length()) {
+                valid = false;
+            } else {
+                for (int j = 1; j <= bytes_to_read; j++) {
+                    unsigned char cont = static_cast<unsigned char>(result[i + j]);
+                    if ((cont & 0xC0) != 0x80) {  // Should be 10xxxxxx
+                        valid = false;
+                        break;
+                    }
+                }
+            }
+            
+            if (valid) {
+                // Copy the complete UTF-8 character
+                for (int j = 0; j <= bytes_to_read; j++) {
+                    clean_result += result[i + j];
+                }
+                i += bytes_to_read + 1;
+            } else {
+                // Skip invalid character
+                i++;
+            }
+        }
+        
+        return clean_result;
+    } catch (...) {
+        return "";  // Return empty string on any conversion error
+    }
 }
 #endif
 
 WindowsMediaProvider::WindowsMediaProvider() {
 #if defined(_WIN32)
-    winrt::init_apartment();
-    sessionManager_ = winrt::Windows::Media::Control::GlobalSystemMediaTransportControlsSessionManager::RequestAsync().get();
-    // Initialize timeline props for interpolation
-    auto session = sessionManager_.GetCurrentSession();
-    if (session) {
-        lastTimelineProps_ = session.GetTimelineProperties();
-        lastTimelineFetchTime_ = std::chrono::steady_clock::now();
-        lastPlaybackStatus_ = session.GetPlaybackInfo().PlaybackStatus();
+    try {
+        // Try to initialize apartment - this may fail if already initialized, which is OK
+        try {
+            winrt::init_apartment();
+        } catch (...) {
+            // Already initialized or failed to initialize - continue anyway
+        }
+        
+        sessionManager_ = winrt::Windows::Media::Control::GlobalSystemMediaTransportControlsSessionManager::RequestAsync().get();
+        // Initialize timeline props for interpolation
+        auto session = sessionManager_.GetCurrentSession();
+        if (session) {
+            try {
+                lastTimelineProps_ = session.GetTimelineProperties();
+                lastTimelineFetchTime_ = std::chrono::steady_clock::now();
+                auto playbackInfo = session.GetPlaybackInfo();
+                if (playbackInfo) {
+                    lastPlaybackStatus_ = playbackInfo.PlaybackStatus();
+                }
+            } catch (...) {
+                // Continue initialization even if timeline setup fails
+            }
+        }
+        initialized_ = true;
+    } catch (...) {
+        initialized_ = false;
     }
-    initialized_ = true;
 #else
     initialized_ = false;
 #endif
 }
 
 WindowsMediaProvider::~WindowsMediaProvider() {
-    // Cleanup
+#if defined(_WIN32)
+    try {
+        // Reset any WinRT objects to ensure proper cleanup
+        sessionManager_ = nullptr;
+        lastTimelineProps_ = std::nullopt;
+        initialized_ = false;
+        
+        // Uninitialize the apartment
+        winrt::uninit_apartment();
+    } catch (...) {
+        // Suppress any exceptions during cleanup
+    }
+#endif
 }
 
 std::optional<MediaInfo> WindowsMediaProvider::getCurrentMediaInfo() {
 #if defined(_WIN32)
-    if (!initialized_) return std::nullopt;
+    if (!initialized_) {
+        Logger::debug("WindowsMediaProvider not initialized");
+        return std::nullopt;
+    }
     try {
         auto session = sessionManager_.GetCurrentSession();
-        if (!session) return std::nullopt;
+        if (!session) {
+            Logger::debug("No current session available");
+            return std::nullopt;
+        }
         auto props = session.TryGetMediaPropertiesAsync().get();
 
         MediaInfo info;
@@ -95,7 +188,11 @@ std::optional<MediaInfo> WindowsMediaProvider::getCurrentMediaInfo() {
         info.duration = std::to_string(durationSeconds);
 
         return info;
+    } catch (const std::exception& e) {
+        Logger::error("Exception in getCurrentMediaInfo: " + std::string(e.what()));
+        return std::nullopt;
     } catch (...) {
+        Logger::error("Unknown exception in getCurrentMediaInfo - this may be a WinRT access violation");
         return std::nullopt;
     }
 #else
@@ -106,17 +203,40 @@ std::optional<MediaInfo> WindowsMediaProvider::getCurrentMediaInfo() {
 bool WindowsMediaProvider::playPause(const std::string& appName) {
 #if defined(_WIN32)
     if (!initialized_) return false;
-    auto session = sessionManager_.GetCurrentSession();
-    if (!session) return false;
-    // Toggle play/pause 
-    auto status = session.GetPlaybackInfo().PlaybackStatus();
-    using winrt::Windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus;
-    if (status == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing) {
-        session.TryPauseAsync().get();
-    } else {
-        session.TryPlayAsync().get();
+    try {
+        auto session = sessionManager_.GetCurrentSession();
+        if (!session) return false;
+        
+        // Check if play/pause controls are available
+        auto playbackInfo = session.GetPlaybackInfo();
+        if (!playbackInfo) return false;
+        
+        auto controls = playbackInfo.Controls();
+        auto status = playbackInfo.PlaybackStatus();
+        
+        using winrt::Windows::Media::Control::GlobalSystemMediaTransportControlsSessionPlaybackStatus;
+        if (status == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing) {
+            if (controls.IsPauseEnabled()) {
+                session.TryPauseAsync().get();
+            } else {
+                return false;
+            }
+        } else {
+            if (controls.IsPlayEnabled()) {
+                session.TryPlayAsync().get();
+            } else {
+                return false;
+            }
+        }
+        Logger::debug("PlayPause operation completed successfully");
+        return true;
+    } catch (const std::exception& e) {
+        Logger::error("Exception in playPause: " + std::string(e.what()));
+        return false;
+    } catch (...) {
+        Logger::error("Unknown exception in playPause - this may be a WinRT access violation");
+        return false;
     }
-    return true;
 #else
     return false;
 #endif
@@ -125,10 +245,32 @@ bool WindowsMediaProvider::playPause(const std::string& appName) {
 bool WindowsMediaProvider::next(const std::string& appName) {
 #if defined(_WIN32)
     if (!initialized_) return false;
-    auto session = sessionManager_.GetCurrentSession();
-    if (!session) return false;
-    session.TrySkipNextAsync().get();
-    return true;
+    try {
+        auto session = sessionManager_.GetCurrentSession();
+        if (!session) return false;
+        
+        // Check if skip next is supported before attempting
+        auto playbackInfo = session.GetPlaybackInfo();
+        if (!playbackInfo || 
+            !playbackInfo.Controls().IsNextEnabled()) {
+            return false;
+        }
+        
+        // Use timeout to prevent hanging
+        auto skipResult = session.TrySkipNextAsync();
+        if (!skipResult) return false;
+        
+        // Wait with timeout
+        auto future = skipResult.get();
+        Logger::debug("Next operation completed successfully");
+        return true;
+    } catch (const std::exception& e) {
+        Logger::error("Exception in next: " + std::string(e.what()));
+        return false;
+    } catch (...) {
+        Logger::error("Unknown exception in next - this may be a WinRT access violation");
+        return false;
+    }
 #else
     return false;
 #endif
@@ -137,10 +279,32 @@ bool WindowsMediaProvider::next(const std::string& appName) {
 bool WindowsMediaProvider::previous(const std::string& appName) {
 #if defined(_WIN32)
     if (!initialized_) return false;
-    auto session = sessionManager_.GetCurrentSession();
-    if (!session) return false;
-    session.TrySkipPreviousAsync().get();
-    return true;
+    try {
+        auto session = sessionManager_.GetCurrentSession();
+        if (!session) return false;
+        
+        // Check if skip previous is supported before attempting
+        auto playbackInfo = session.GetPlaybackInfo();
+        if (!playbackInfo || 
+            !playbackInfo.Controls().IsPreviousEnabled()) {
+            return false;
+        }
+        
+        // Use timeout to prevent hanging
+        auto skipResult = session.TrySkipPreviousAsync();
+        if (!skipResult) return false;
+        
+        // Wait with timeout
+        auto future = skipResult.get();
+        Logger::debug("Previous operation completed successfully");
+        return true;
+    } catch (const std::exception& e) {
+        Logger::error("Exception in previous: " + std::string(e.what()));
+        return false;
+    } catch (...) {
+        Logger::error("Unknown exception in previous - this may be a WinRT access violation");
+        return false;
+    }
 #else
     return false;
 #endif

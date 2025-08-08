@@ -3,6 +3,23 @@
 #include <string>
 #include <nlohmann/json.hpp>
 
+// Helper function to remove problematic characters, keeping only safe ASCII
+inline std::string cleanUtf8(const std::string& input) {
+    std::string clean_result;
+    clean_result.reserve(input.length());
+    
+    for (char c : input) {
+        unsigned char uc = static_cast<unsigned char>(c);
+        // Keep only printable ASCII characters (space to tilde)
+        if (uc >= 32 && uc <= 126) {
+            clean_result += c;
+        }
+        // Skip everything else (control chars, extended ASCII, UTF-8, etc.)
+    }
+    
+    return clean_result;
+}
+
 struct MediaInfo {
     std::string title;
     std::string artist;
@@ -32,13 +49,13 @@ struct MediaInfo {
     
     nlohmann::json toJson() const {
         return nlohmann::json{
-            {"title", title},
-            {"artist", artist},
-            {"album", album},
-            {"imageUrl", imageUrl},
-            {"duration", duration},
-            {"position", position},
-            {"source", appName}
+            {"title", cleanUtf8(title)},
+            {"artist", cleanUtf8(artist)},
+            {"album", cleanUtf8(album)},
+            {"imageUrl", cleanUtf8(imageUrl)},
+            {"duration", cleanUtf8(duration)},
+            {"position", cleanUtf8(position)},
+            {"source", cleanUtf8(appName)}
         };
     }
     

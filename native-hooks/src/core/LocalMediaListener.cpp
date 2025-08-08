@@ -131,21 +131,32 @@ void LocalMediaListener::pollLoop() {
     const auto pollInterval = std::chrono::milliseconds(500);
     
     while (!shouldStop_.load()) {
-        if (mediaProvider_ && httpServer_) {
-            auto currentInfo = mediaProvider_->getCurrentMediaInfo();
-            if (currentInfo.has_value()) {
-                if (lastMediaInfo_ != currentInfo.value()) {
-                    lastMediaInfo_ = currentInfo.value();
-                    httpServer_->setCurrentMediaInfo(lastMediaInfo_);
-                }
-            } else {
-                // No media playing - send empty info if we had something before
-                MediaInfo emptyInfo{};
-                if (lastMediaInfo_ != emptyInfo) {
-                    lastMediaInfo_ = emptyInfo;
-                    httpServer_->setCurrentMediaInfo(lastMediaInfo_);
+        try {
+            if (mediaProvider_ && httpServer_) {
+                Logger::debug("Polling for media info");
+                auto currentInfo = mediaProvider_->getCurrentMediaInfo();
+                if (currentInfo.has_value()) {
+                    if (lastMediaInfo_ != currentInfo.value()) {
+                        Logger::debug("Media info changed, updating");
+                        lastMediaInfo_ = currentInfo.value();
+                        httpServer_->setCurrentMediaInfo(lastMediaInfo_);
+                        Logger::debug("Media info updated successfully");
+                    }
+                } else {
+                    // No media playing - send empty info if we had something before
+                    MediaInfo emptyInfo{};
+                    if (lastMediaInfo_ != emptyInfo) {
+                        Logger::debug("No media playing, clearing info");
+                        lastMediaInfo_ = emptyInfo;
+                        httpServer_->setCurrentMediaInfo(lastMediaInfo_);
+                        Logger::debug("Media info cleared successfully");
+                    }
                 }
             }
+        } catch (const std::exception& e) {
+            Logger::error("Exception in polling loop: " + std::string(e.what()));
+        } catch (...) {
+            Logger::error("Unknown exception in polling loop");
         }
         
         std::this_thread::sleep_for(pollInterval);

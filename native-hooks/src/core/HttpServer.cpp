@@ -64,8 +64,21 @@ void WebSocketSession::doRead() {
 void WebSocketSession::onRead(beast::error_code ec, std::size_t bytes_transferred) {
     boost::ignore_unused(bytes_transferred);
 
-    // This indicates that the session was closed
+    // This indicates that the session was closed normally
     if (ec == websocket::error::closed) {
+        Logger::info("WebSocket connection closed normally");
+        if (onClose_) {
+            onClose_(shared_from_this());
+        }
+        return;
+    }
+
+    // Handle common connection errors that don't require logging as errors
+    if (ec == net::error::eof || 
+        ec == net::error::connection_reset || 
+        ec == net::error::connection_aborted ||
+        ec == beast::error::timeout) {
+        Logger::debug("WebSocket connection terminated: " + std::string(ec.message()));
         if (onClose_) {
             onClose_(shared_from_this());
         }
@@ -96,8 +109,19 @@ void WebSocketSession::onWrite(beast::error_code ec, std::size_t bytes_transferr
     if (ec) {
         // Ignore canceled writes during handshake instead of closing session
         if (ec == net::error::operation_aborted) {
+            Logger::debug("WebSocket write operation aborted (normal during handshake)");
             return;
         }
+        
+        // Handle common connection errors that don't require error logging
+        if (ec == net::error::eof || 
+            ec == net::error::connection_reset || 
+            ec == net::error::connection_aborted ||
+            ec == beast::error::timeout) {
+            Logger::debug("WebSocket write connection terminated: " + std::string(ec.message()));
+            return;
+        }
+        
         Logger::error("WebSocket write error: " + std::string(ec.message()));
         // Do not invoke onClose_ here to keep session alive
         return;
