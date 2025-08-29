@@ -134,12 +134,12 @@ object LocalMediaListener {
             lastStartupShutdownTime = System.currentTimeMillis()
             
             try {
+                isRunning = false
                 native!!.shutdownNativeHook()
             } catch (e: Exception) {
                 Logger.error("Error during native shutdown: ${e.message}")
             } finally {
                 native = null
-                isRunning = false
                 System.gc()
             }
             

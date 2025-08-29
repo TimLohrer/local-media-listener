@@ -57,7 +57,8 @@ std::optional<MediaInfo> MacOSMediaProvider::fetchFromApp(const Application& app
                     end try
 
                     try
-                        set dur to duration of current track
+                        set dur_sec to duration of current track
+                        set dur to dur_sec * 1000
                         set dur to dur as string
                     on error
                         set dur to "null"
