@@ -57,8 +57,7 @@ std::optional<MediaInfo> MacOSMediaProvider::fetchFromApp(const Application& app
                     end try
 
                     try
-                        set dur_sec to duration of current track
-                        set dur to dur_sec * 1000
+                        set dur to duration of current track
                         set dur to dur as string
                     on error
                         set dur to "null"
@@ -137,6 +136,10 @@ std::optional<MediaInfo> MacOSMediaProvider::fetchFromApp(const Application& app
     
     if (parts.size() < 6) {
         return std::nullopt;
+    }
+
+    if (appName == "Music") {
+        parts[4] *= 1000; // Convert seconds to milliseconds for AppleMusic
     }
     
     return MediaInfo{
