@@ -138,8 +138,9 @@ std::optional<MediaInfo> MacOSMediaProvider::fetchFromApp(const Application& app
         return std::nullopt;
     }
 
-    if (appName == "Music") {
-        parts[4] *= 1000; // Convert seconds to milliseconds for AppleMusic
+    if (app.appName == "Music") {
+        // convert seconds to milliseconds
+        parts[4] = std::to_string(std::stol(parts[4]) * 1000);
     }
     
     return MediaInfo{

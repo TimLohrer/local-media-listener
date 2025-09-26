@@ -74,7 +74,11 @@ bin/
 /native-hooks/*.dll
 /native-hooks/*.exe
 /native-hooks/core
-/native-hooks/build*
+/native-hooks/build
+/native-hooks/build-*
+!/native-hooks/build-*.sh
+!/native-hooks/build-*.ps1
+/native-hooks/test.sh
 /native-hooks/tmp*
 /native-hooks/out
 /native-hooks/vcpkg
