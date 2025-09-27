@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# check if this is run by bash
+if [ -z "${BASH_SOURCE[0]}" ]; then
+    echo "This script must be run by bash"
+    exit 1
+fi
+
 START_TIME=$(date +%s)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"

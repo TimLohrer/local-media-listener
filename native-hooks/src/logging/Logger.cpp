@@ -6,7 +6,7 @@
 #include <cstring>
 
 // Static member initialization
-Logger::Level Logger::currentLevel = Logger::Level::DEBUG;
+Logger::Level Logger::currentLevel = Logger::Level::WARN;
 bool Logger::useColors = true;
 
 std::string Logger::getTimestamp() {

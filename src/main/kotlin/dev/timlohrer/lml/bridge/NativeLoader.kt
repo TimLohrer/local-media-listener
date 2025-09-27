@@ -42,7 +42,7 @@ object NativeLoader {
         val libFileName = when {
             isWindows -> "lib${libName}_windows_${arch}.dll"
             isLinux -> "lib${libName}_linux_${arch}.so"
-            isMac -> "lib${libName}_darwin_${arch}.dylib"
+            isMac -> "lib${libName}_darwin_amd64.dylib" // always use x64 for macos because macos dylibs are universal
             else -> throw UnsupportedOperationException("Unsupported OS: $osName")
         }
         
@@ -92,7 +92,7 @@ object NativeLoader {
         val libFileName = when {
             isWindows -> "lib${libName}_windows_${arch}.dll"
             isLinux -> "lib${libName}_linux_${arch}.so"
-            isMac -> "lib${libName}_darwin_${arch}.dylib"
+            isMac -> "lib${libName}_darwin_amd64.dylib"
             else -> return false
         }
         
