@@ -11,8 +11,10 @@ import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
 
 object LocalMediaListener {
-    internal const val BASE_URL = "http://localhost:14565"
-    internal const val BASE_WS_URL = "ws://localhost:14566"
+    internal var httpPort: Int = 0
+    internal var wsPort: Int = 0
+    internal val BASE_URL: String get() = "http://localhost:$httpPort"
+    internal val BASE_WS_URL: String get() = "ws://localhost:$wsPort"
     var isRunning = false
     internal var native: NativeBridge? = null
     internal var lastStartupShutdownTime: Long = 0
@@ -69,7 +71,10 @@ object LocalMediaListener {
                     }
                     
                     Logger.debug("Native library is available, attempting to initialize NativeBridge...")
-                    native = NativeBridge()
+                    httpPort = (49152..65535).random()
+                    wsPort = httpPort + 1
+                    Logger.info("Using HTTP port: $httpPort, WebSocket port: $wsPort")
+                    native = NativeBridge(httpPort)
                 } catch (e: Exception) {
                     Logger.error("Failed to initialize NativeBridge: ${e.message}")
                     Logger.error("Exception type: ${e.javaClass.simpleName}")

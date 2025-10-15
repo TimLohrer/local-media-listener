@@ -12,12 +12,12 @@ LocalMediaListener::~LocalMediaListener() {
     shutdown();
 }
 
-bool LocalMediaListener::initialize() {
+bool LocalMediaListener::initialize(int port) {
     if (running_.load()) {
         return true; // Already initialized
     }
     
-    Logger::info("Initializing LocalMediaListener...");
+    Logger::info("Initializing LocalMediaListener on port " + std::to_string(port) + "...");
     
     // Create media provider
     mediaProvider_ = IMediaProvider::create();
@@ -30,7 +30,7 @@ bool LocalMediaListener::initialize() {
     // Create HTTP server
     httpServer_ = std::make_unique<HttpServer>(static_cast<std::shared_ptr<IMediaProvider>>(mediaProvider_));
     Logger::debug("pointer created");
-    if (!httpServer_->start("127.0.0.1", 14565)) {
+    if (!httpServer_->start("127.0.0.1", port)) {
         Logger::error("Failed to start HTTP server");
         return false;
     }

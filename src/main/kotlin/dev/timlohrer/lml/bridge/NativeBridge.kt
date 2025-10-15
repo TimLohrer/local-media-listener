@@ -2,14 +2,14 @@ package dev.timlohrer.lml.bridge
 
 import dev.timlohrer.lml.Logger
 
-internal class NativeBridge {
+internal class NativeBridge(private val httpPort: Int) {
     
     init {
         try {
             Logger.debug("Attempting to load native library...")
             NativeLoader.loadNativeLibraryWithOptionalHelper("native_hook")
-            Logger.debug("Native library loaded successfully, initializing native hook...")
-            initNativeHook()
+            Logger.debug("Native library loaded successfully, initializing native hook with port $httpPort...")
+            initNativeHook(httpPort)
             Logger.info("NativeBridge initialized successfully")
         } catch (e: UnsatisfiedLinkError) {
             Logger.error("Failed to load native library: ${e.message}")
@@ -22,6 +22,6 @@ internal class NativeBridge {
         }
     }
     
-    external fun initNativeHook()
+    external fun initNativeHook(port: Int)
     external fun shutdownNativeHook()
 }

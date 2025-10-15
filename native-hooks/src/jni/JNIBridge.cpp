@@ -2,9 +2,9 @@
 #include "LocalMediaListener.h"
 #include "Logger.h"
 
-JNIEXPORT void JNICALL Java_dev_timlohrer_lml_bridge_NativeBridge_initNativeHook(JNIEnv *env, jobject obj) {
+JNIEXPORT void JNICALL Java_dev_timlohrer_lml_bridge_NativeBridge_initNativeHook(JNIEnv *env, jobject obj, jint port) {
     Logger::debug("Loading jni bridge");
-    LocalMediaListener::getInstance().initialize();
+    LocalMediaListener::getInstance().initialize(static_cast<int>(port));
     Logger::debug("Init finished");
 }
 

@@ -11,7 +11,7 @@ class LocalMediaListener {
 public:
     static LocalMediaListener& getInstance();
     
-    bool initialize();
+    bool initialize(int port = 14565);
     void shutdown();
     
     MediaInfo getCurrentMediaInfo() const;
