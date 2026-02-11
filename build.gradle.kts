@@ -1,6 +1,6 @@
 plugins {
     `maven-publish`
-    id("com.github.johnrengelman.shadow") version "8.1.1"
+    id("com.gradleup.shadow") version "9.3.1"
     kotlin("jvm") version "2.0.21"
     kotlin("plugin.serialization") version embeddedKotlinVersion
 }
