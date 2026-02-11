@@ -1,7 +1,0 @@
-CompileFlags:
-  CompilationDatabase:
-    - build/windows
-    - build/macos
-    - build/linux
-  FallbackFlags:
-    - -std=c++17 
