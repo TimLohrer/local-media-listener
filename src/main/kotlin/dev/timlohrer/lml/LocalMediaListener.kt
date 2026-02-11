@@ -1,22 +1,16 @@
 package dev.timlohrer.lml
 
-import dev.timlohrer.lml.bridge.NativeBridge
-import dev.timlohrer.lml.bridge.NativeLoader
 import dev.timlohrer.lml.data.MediaInfo
 import dev.timlohrer.lml.networking.NativeHookClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import org.slf4j.LoggerFactory
 import java.util.concurrent.atomic.AtomicBoolean
 
 object LocalMediaListener {
-    internal var httpPort: Int = 0
-    internal var wsPort: Int = 0
-    internal val BASE_URL: String get() = "http://localhost:$httpPort"
-    internal val BASE_WS_URL: String get() = "ws://localhost:$wsPort"
+    private val logger = LoggerFactory.getLogger(LocalMediaListener::class.java)
     var isRunning = false
-    internal var native: NativeBridge? = null
     internal var lastStartupShutdownTime: Long = 0
     private val shouldExit = AtomicBoolean(false)
     
@@ -24,14 +18,24 @@ object LocalMediaListener {
     fun main(args: Array<String>) {
         // Add shutdown hook for graceful cleanup
         Runtime.getRuntime().addShutdownHook(Thread {
-            Logger.info("Received shutdown signal, cleaning up...")
+            logger.info("Received shutdown signal, cleaning up...")
             shouldExit.set(true)
             closeHook()
         })
         
         initialize { 
             onMediaChange { 
-                Logger.info("Media change: ${it.toString()}")
+                logger.info(
+                    "Media change: title='{}', artist='{}', album='{}', duration={}, position={}, isPlaying={}, source='{}', error='{}'",
+                    it.title,
+                    it.artist,
+                    it.album,
+                    it.duration,
+                    it.position,
+                    it.isPlaying,
+                    it.source,
+                    it.error
+                )
             }
         }
         
@@ -41,58 +45,38 @@ object LocalMediaListener {
                 Thread.sleep(1000)
             }
         } catch (e: InterruptedException) {
-            Logger.info("Main thread interrupted, shutting down...")
+            logger.info("Main thread interrupted, shutting down...")
             Thread.currentThread().interrupt()
         } finally {
             closeHook()
         }
         
-        Logger.info("LocalMediaListener main loop exited.")
+        logger.info("LocalMediaListener main loop exited.")
     }
     
     @Suppress("UNUSED")
     fun initialize(afterInitialized: (() -> Unit)? = null) {
         if (isRunning) {
-            Logger.info("LocalMediaListener is already running.")
+            logger.info("LocalMediaListener is already running.")
             return
         }
         
-        Logger.info("Initializing LocalMediaListener...")
+        logger.info("Initializing LocalMediaListener...")
 
         lastStartupShutdownTime = System.currentTimeMillis()
         CoroutineScope(Dispatchers.IO).launch {
-            CoroutineScope(Dispatchers.IO).launch {
-                try {
-                    // Check if native library is available before attempting to load
-                    if (!NativeLoader.isNativeLibraryAvailable("native_hook")) {
-                        Logger.error("Native library not available for current platform/architecture")
-                        Logger.error("Platform: ${System.getProperty("os.name")}, Architecture: ${System.getProperty("os.arch")}")
-                        return@launch
-                    }
-                    
-                    Logger.debug("Native library is available, attempting to initialize NativeBridge...")
-                    httpPort = (49152..65535).random()
-                    wsPort = httpPort + 1
-                    Logger.info("Using HTTP port: $httpPort, WebSocket port: $wsPort")
-                    native = NativeBridge(httpPort)
-                } catch (e: Exception) {
-                    Logger.error("Failed to initialize NativeBridge: ${e.message}")
-                    Logger.error("Exception type: ${e.javaClass.simpleName}")
-                    if (e is UnsatisfiedLinkError) {
-                        Logger.error("This indicates the native library couldn't be loaded")
-                        Logger.error("Check if the library was built for the correct platform/architecture")
-                    }
+            try {
+                if (!NativeHookClient.initialize()) {
+                    logger.error("Failed to initialize LocalMediaListener backend.")
                     return@launch
                 }
+
+                isRunning = true
+                logger.info("LocalMediaListener initialized successfully.")
+                afterInitialized?.invoke()
+            } catch (e: Exception) {
+                logger.error("Failed to initialize LocalMediaListener", e)
             }
-                
-            // wait for the websocket to be available
-            delay(3000)
-            isRunning = true
-            
-            Logger.info("LocalMediaListener initialized successfully.")
-    
-            afterInitialized?.invoke()
         }
     }
     
@@ -123,32 +107,28 @@ object LocalMediaListener {
     
     @Suppress("UNUSED")
     fun isAvailable(): Boolean {
-        val now = System.currentTimeMillis()
-        return (now - lastStartupShutdownTime > 3 * 1000) && (isRunning || !(NativeLoader.isWindows && NativeLoader.arch == "arm64"))
+        return isRunning || NativeHookClient.isNativeApiReady()
     }
     
     @Suppress("UNUSED")
     fun closeHook() {
         synchronized(this) {
-            if (!isRunning || native == null) {
-                Logger.info("LocalMediaListener is not running. No need to exit.")
+            if (!isRunning) {
+                logger.info("LocalMediaListener is not running. No need to exit.")
                 return
             }
 
-            Logger.info("Shutting down LocalMediaListener...")
+            logger.info("Shutting down LocalMediaListener...")
             lastStartupShutdownTime = System.currentTimeMillis()
             
             try {
                 isRunning = false
-                native!!.shutdownNativeHook()
+                NativeHookClient.shutdown()
             } catch (e: Exception) {
-                Logger.error("Error during native shutdown: ${e.message}")
-            } finally {
-                native = null
-                System.gc()
+                logger.error("Error during backend shutdown", e)
             }
             
-            Logger.info("LocalMediaListener shutdown complete.")
+            logger.info("LocalMediaListener shutdown complete.")
         }
     }
 }
