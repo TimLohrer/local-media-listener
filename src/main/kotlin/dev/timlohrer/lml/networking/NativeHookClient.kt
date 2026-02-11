@@ -1,198 +1,235 @@
 package dev.timlohrer.lml.networking
 
 import dev.timlohrer.lml.LocalMediaListener
-import dev.timlohrer.lml.Logger
 import dev.timlohrer.lml.data.MediaInfo
-import dev.timlohrer.lml.data.TransportMediaInfo
-import kotlinx.serialization.json.Json
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.Response
-import okhttp3.WebSocket
-import okhttp3.WebSocketListener
-import okio.ByteString
+import org.endlesssource.mediainterface.SystemMediaFactory
+import org.endlesssource.mediainterface.api.MediaSession
+import org.endlesssource.mediainterface.api.MediaSessionListener
+import org.endlesssource.mediainterface.api.NowPlaying
+import org.endlesssource.mediainterface.api.PlaybackState
+import org.endlesssource.mediainterface.api.SystemMediaInterface
+import org.endlesssource.mediainterface.api.SystemMediaOptions
+import org.slf4j.LoggerFactory
 import java.io.Closeable
-import java.net.URI
-import java.net.http.HttpClient
-import java.net.http.HttpRequest
-import java.net.http.HttpResponse
+import java.util.concurrent.atomic.AtomicReference
 
 internal object NativeHookClient {
-    val httpClient = HttpClient.newHttpClient()
-    
-    fun isNativeApiReady(): Boolean {
-        if (LocalMediaListener.isRunning) {
+    private val logger = LoggerFactory.getLogger(NativeHookClient::class.java)
+    @Volatile
+    private var mediaInterface: SystemMediaInterface? = null
+
+    @Synchronized
+    fun initialize(): Boolean {
+        if (mediaInterface != null) {
             return true
         }
-        
-        val request = Request.Builder().url("${LocalMediaListener.BASE_URL}/ready").build()
-        
-        // NEIN INTELLIJ DAS IST NICHT UNREACHABLE CODE DU BASTARD
+
+        val support = SystemMediaFactory.getCurrentPlatformSupport()
+        if (!support.available()) {
+            logger.error("Media interface support unavailable: {}", support.reason())
+            return false
+        }
+
         return try {
-            val response: Response = OkHttpClient().newCall(request).execute()
-            response.isSuccessful
+            val options = SystemMediaOptions.defaults()
+                .withEventDrivenEnabled(true)
+                .withSessionPollInterval(java.time.Duration.ofMillis(250))
+                .withSessionUpdateInterval(java.time.Duration.ofMillis(250))
+            mediaInterface = SystemMediaFactory.createSystemInterface(options)
+            true
         } catch (e: Exception) {
+            logger.error("Failed to initialize mediainterface", e)
             false
         }
+    }
+
+    @Synchronized
+    fun shutdown() {
+        mediaInterface?.close()
+        mediaInterface = null
+    }
+
+    fun isNativeApiReady(): Boolean {
+        return mediaInterface != null
     }
     
     fun getCurrentMediaInfo(): MediaInfo {
         if (!LocalMediaListener.isRunning) {
-            Logger.warn("LocalMediaListener is not running. Please initialize it before fetching any data!")
+            logger.warn("LocalMediaListener is not running. Please initialize it before fetching any data!")
             return MediaInfo.stopped()
         }
-        
-        val request = HttpRequest.newBuilder()
-            .uri(URI.create("${LocalMediaListener.BASE_URL}/now-playing"))
-            .GET()
-            .build()
-        
+
+        val currentMediaInterface = mediaInterface ?: return MediaInfo.stopped()
+
         return try {
-            val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
-            if (response.statusCode() != 200) {
-                Logger.error("Failed to fetch current media info: ${response.statusCode()}")
-                return MediaInfo.stopped()
-            }
-            val mediaInfo = Json.decodeFromString<TransportMediaInfo>(response.body()).toMediaInfo()
-            mediaInfo.isPlaying = true
-            mediaInfo
+            val session = currentMediaInterface.getActiveSession()
+                .orElseGet {
+                    currentMediaInterface.getAllSessions().firstOrNull()
+                }
+                ?: return MediaInfo.stopped()
+            sessionToMediaInfo(session)
         } catch (e: Exception) {
-            Logger.error("Error parsing media info: ${e.message}")
-            MediaInfo.error("Error parsing media info: ${e.message}")
+            logger.error("Error reading media info from mediainterface", e)
+            MediaInfo.error("Error reading media info: ${e.message}")
         }
     }
     
     fun subscribeToMediaChanges(onUpdate: (MediaInfo) -> Unit): Closeable {
         if (!LocalMediaListener.isRunning) {
             val errorMessage = "LocalMediaListener is not running. Please initialize it before subscribing!"
-            Logger.warn(errorMessage)
+            logger.warn(errorMessage)
             onUpdate(MediaInfo.error(errorMessage))
-            return Closeable { Logger.debug("No-op closeable: LocalMediaListener not running.") }
+            return Closeable { logger.debug("No-op closeable: LocalMediaListener not running.") }
         }
 
-        val request = Request.Builder()
-            .url("${LocalMediaListener.BASE_WS_URL}")
-            .build()
+        val currentMediaInterface = mediaInterface
+        if (currentMediaInterface == null) {
+            val errorMessage = "Media backend is not initialized."
+            logger.warn(errorMessage)
+            onUpdate(MediaInfo.error(errorMessage))
+            return Closeable { logger.debug("No-op closeable: backend not initialized.") }
+        }
 
-        lateinit var currentWebSocket: WebSocket
+        val lastMediaInfo = AtomicReference<MediaInfo?>(null)
 
-        val webSocketListener = object : WebSocketListener() {
-            override fun onOpen(webSocket: WebSocket, response: Response) {
-                Logger.info("WebSocket connection opened: ${response.message}")
-                currentWebSocket = webSocket
-            }
-
-            override fun onMessage(webSocket: WebSocket, text: String) {
-                try {
-                    if (text.contains("stopped", ignoreCase = true)) {
-                        onUpdate(MediaInfo.stopped())
-                    } else {
-                        val mediaInfo = Json.decodeFromString<TransportMediaInfo>(text).toMediaInfo()
-                        mediaInfo.isPlaying = true
-                        onUpdate(mediaInfo)
-                    }
-                } catch (e: Exception) {
-                    Logger.error("Error parsing WebSocket message: $e, message: $text")
-                    onUpdate(MediaInfo.error("Failed to parse media info: ${e.message}"))
+        fun emitCurrentIfChanged() {
+            try {
+                val mediaInfo = getCurrentMediaInfo()
+                val previous = lastMediaInfo.getAndSet(mediaInfo)
+                if (previous != mediaInfo) {
+                    onUpdate(mediaInfo)
                 }
-            }
-
-            override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-                Logger.debug("Received binary message (unhandled): ${bytes.hex()}")
-            }
-
-            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-                Logger.info("WebSocket connection closing: code=$code, reason=$reason")
-                webSocket.close(1000, null)
-            }
-
-            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                Logger.info("WebSocket connection closed: code=$code, reason=$reason")
-                onUpdate(MediaInfo.stopped())
-            }
-
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                val responseMessage = response?.message ?: "No response"
-                Logger.error("WebSocket connection failure: ${t.message}, response: $responseMessage")
-                onUpdate(MediaInfo.error("WebSocket connection failed: ${t.message}"))
+            } catch (e: Exception) {
+                onUpdate(MediaInfo.error("Media event handling failed: ${e.message}"))
             }
         }
 
-        val ws = OkHttpClient().newWebSocket(request, webSocketListener)
-        currentWebSocket = ws
-        
+        val listener = object : MediaSessionListener {
+            override fun onNowPlayingChanged(session: MediaSession, nowPlaying: java.util.Optional<NowPlaying>) {
+                emitCurrentIfChanged()
+            }
+
+            override fun onPlaybackStateChanged(session: MediaSession, state: PlaybackState) {
+                emitCurrentIfChanged()
+            }
+
+            override fun onSessionActiveChanged(session: MediaSession, active: Boolean) {
+                emitCurrentIfChanged()
+            }
+
+            override fun onSessionAdded(session: MediaSession) {
+                session.addListener(this)
+                emitCurrentIfChanged()
+            }
+
+            override fun onSessionRemoved(sessionId: String) {
+                emitCurrentIfChanged()
+            }
+        }
+
+        currentMediaInterface.addSessionListener(listener)
+        currentMediaInterface.getAllSessions().forEach { it.addListener(listener) }
+        emitCurrentIfChanged()
+
         return Closeable {
-            Logger.info("Unsubscribing and closing WebSocket connection.")
-            currentWebSocket.cancel()
+            logger.info("Unsubscribing media change listener.")
+            runCatching {
+                currentMediaInterface.removeSessionListener(listener)
+                currentMediaInterface.getAllSessions().forEach { it.removeListener(listener) }
+            }.onFailure {
+                logger.debug("Failed while removing media listeners", it)
+            }
         }
     }
     
     fun back(appName: String) {
         if (!LocalMediaListener.isRunning) {
-            Logger.warn("LocalMediaListener is not running. No need to back.")
+            logger.warn("LocalMediaListener is not running. No need to back.")
             return
         }
-        
-        val request = HttpRequest.newBuilder()
-            .uri(URI.create("${LocalMediaListener.BASE_URL}/control/back"))
-            .POST(HttpRequest.BodyPublishers.ofString(appName))
-            .build()
-        
-        try {
-            val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
-            if (response.statusCode() != 200) {
-                Logger.error("Failed to go back: ${response.statusCode()}")
-                return
-            }
-        } catch (e: Exception) {
-            Logger.error("Error going back: ${e.message}")
+
+        val session = resolveSession(appName) ?: run {
+            logger.warn("No media session found for app '{}'", appName)
             return
+        }
+
+        val success = runCatching { session.controls.previous() }
+            .getOrElse {
+                logger.error("Error going back", it)
+                false
+            }
+        if (!success) {
+            logger.error("Back command was rejected for app '{}'", appName)
         }
     }
     
     fun next(appName: String) {
         if (!LocalMediaListener.isRunning) {
-            Logger.warn("LocalMediaListener is not running. No need to next.")
+            logger.warn("LocalMediaListener is not running. No need to next.")
             return
         }
-        
-        val request = HttpRequest.newBuilder()
-            .uri(URI.create("${LocalMediaListener.BASE_URL}/control/next"))
-            .POST(HttpRequest.BodyPublishers.ofString(appName))
-            .build()
-        
-        try {
-            val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
-            if (response.statusCode() != 200) {
-                Logger.error("Failed to go next: ${response.statusCode()}")
-                return
-            }
-        } catch (e: Exception) {
-            Logger.error("Error going next: ${e.message}")
+
+        val session = resolveSession(appName) ?: run {
+            logger.warn("No media session found for app '{}'", appName)
             return
+        }
+
+        val success = runCatching { session.controls.next() }
+            .getOrElse {
+                logger.error("Error going next", it)
+                false
+            }
+        if (!success) {
+            logger.error("Next command was rejected for app '{}'", appName)
         }
     }
     
-fun playPause(appName: String) {
+    fun playPause(appName: String) {
         if (!LocalMediaListener.isRunning) {
-            Logger.warn("LocalMediaListener is not running. No need to play/pause.")
+            logger.warn("LocalMediaListener is not running. No need to play/pause.")
             return
         }
-        
-        val request = HttpRequest.newBuilder()
-            .uri(URI.create("${LocalMediaListener.BASE_URL}/control/play-pause"))
-            .POST(HttpRequest.BodyPublishers.ofString(appName))
-            .build()
-        
-        try {
-            val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
-            if (response.statusCode() != 200) {
-                Logger.error("Failed to toggle play/pause: ${response.statusCode()}")
-                return
+
+        val session = resolveSession(appName) ?: run {
+            logger.warn("No media session found for app '{}'", appName)
+            return
+        }
+
+        val success = runCatching { session.controls.togglePlayPause() }
+            .getOrElse {
+                logger.error("Error toggling play/pause", it)
+                false
             }
-        } catch (e: Exception) {
-            Logger.error("Error toggling play/pause: ${e.message}")
-            return
+        if (!success) {
+            logger.error("Play/pause command was rejected for app '{}'", appName)
         }
+    }
+
+    private fun resolveSession(appName: String): MediaSession? {
+        val currentMediaInterface = mediaInterface ?: return null
+
+        if (appName.isBlank()) {
+            return currentMediaInterface.getActiveSession().orElse(null)
+        }
+
+        return currentMediaInterface.getSessionByApp(appName).orElseGet {
+            currentMediaInterface.getAllSessions()
+                .firstOrNull { it.applicationName.equals(appName, ignoreCase = true) }
+        }
+    }
+
+    private fun sessionToMediaInfo(session: MediaSession): MediaInfo {
+        val nowPlaying = session.nowPlaying.orElse(null)
+        val playbackState = runCatching { session.controls.playbackState }.getOrDefault(PlaybackState.UNKNOWN)
+        return MediaInfo(
+            title = nowPlaying?.title?.orElse("") ?: "",
+            artist = nowPlaying?.artist?.orElse("") ?: "",
+            album = nowPlaying?.album?.orElse("") ?: "",
+            imageUrl = nowPlaying?.artwork?.orElse(null),
+            duration = nowPlaying?.duration?.map { it.seconds.toInt().coerceAtLeast(0) }?.orElse(null),
+            position = nowPlaying?.position?.map { it.seconds.toDouble() + (it.nano / 1_000_000_000.0) }?.orElse(null),
+            isPlaying = playbackState == PlaybackState.PLAYING,
+            source = session.applicationName
+        )
     }
 }
