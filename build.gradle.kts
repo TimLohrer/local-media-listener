@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "dev.timlohrer"
-version = "1.0.7-SNAPSHOT"
+version = "1.0.8-SNAPSHOT"
 
 repositories {
     mavenCentral()
@@ -33,10 +33,14 @@ tasks.jar {
     }
 }
 
-//tasks.shadowJar {
-//    archiveClassifier.set("")
-//    mergeServiceFiles()
-//}
+tasks.shadowJar {
+    archiveClassifier.set("")
+    mergeServiceFiles()
+}
+
+tasks.build {
+    dependsOn(tasks.shadowJar)
+}
 
 publishing {
     publications {
