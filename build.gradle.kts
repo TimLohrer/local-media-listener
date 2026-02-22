@@ -39,6 +39,8 @@ tasks.shadowJar {
     mergeServiceFiles { // always merge service files
         include("META-INF/services/org.endlesssource.mediainterface.spi.PlatformMediaProvider")
     }
+    exclude("META-INF/LICENSE*")
+    exclude("META-INF/NOTICE*")
 }
 
 tasks.build {
