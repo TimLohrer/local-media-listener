@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "dev.timlohrer"
-version = "1.0.12-SNAPSHOT"
+version = "1.0.13-SNAPSHOT"
 
 repositories {
     mavenCentral()
