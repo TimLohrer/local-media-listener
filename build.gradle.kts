@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "dev.timlohrer"
-version = "1.0.17-SNAPSHOT"
+version = "1.0.18-SNAPSHOT"
 
 repositories {
     mavenCentral()
@@ -15,7 +15,7 @@ repositories {
 dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
-    implementation("org.endlesssource.mediainterface:all:0.1.8")
+    implementation("org.endlesssource.mediainterface:all:0.1.9")
     implementation("org.slf4j:slf4j-api:2.0.16")
     runtimeOnly("org.slf4j:slf4j-simple:2.0.16")
 }
